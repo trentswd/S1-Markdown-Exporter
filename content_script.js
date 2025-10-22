@@ -113,6 +113,7 @@
             }
             const newSavePath = this.getUniqueFilename(originalFilename);
             this.queue.set(imageUrl, newSavePath);
+            addLog(`S1 Exporter: 入队图片， ${imageUrl}, ${altText},${newSavePath}`)
             return `![[${newSavePath}]]`;
         }
         async processQueue(updateCallback) {
@@ -121,22 +122,34 @@
                 updateCallback(0, 0, "没有需要下载的图片。");
                 return;
             }
-            addLog(`S1 Exporter: 开始下载 ${total} 张图片...`);
+            addLog(`S1 Exporter: 开始下载 ${total} 张图片 (保存至 '下载' 文件夹下的子目录)...`, 'blue'); // 提示用户位置
             let i = 0;
             this.failedDownloads = [];
+
             for (const [url, savePath] of this.queue.entries()) {
                 i++;
                 updateCallback(i, total, savePath);
                 try {
+                    // ** 关键改动：使用 await 并检查响应 **
                     const response = await chrome.runtime.sendMessage({
                         type: 'downloadImage',
                         url: url,
                         savePath: savePath
                     });
-                    if (!response.success) throw new Error(response.error || '下载任务创建失败');
-                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                    // ** 处理 background.js 返回的详细结果 **
+                    if (!response || !response.success) {
+                        // 如果 response 为空或 success 为 false，则抛出错误
+                        throw new Error(response?.error || '下载任务创建失败 (无详细信息)');
+                    }
+                    // 可选：如果需要确认每个文件下载完成（但这会很慢），可以在这里监听 chrome.downloads.onChanged 事件
+                    // 为了速度，我们假设任务创建即开始
+
+                    await new Promise(resolve => setTimeout(resolve, 50)); // 缩短延迟
+
                 } catch (e) {
-                    addLog(`❌ 图片下载失败: ${url} (保存至: ${savePath}) - 错误: ${e.message}`, 'red');
+                    // 现在的 e.message 会包含来自 background.js 的更具体的错误
+                    addLog(`❌ 图片下载失败: ${url} (目标路径: ${savePath}) - 错误: ${e.message}`, 'red');
                     this.failedDownloads.push({ url, savePath, error: e.message });
                 }
             }
@@ -161,13 +174,24 @@
             else if (src && src.startsWith('data/attachment')) imageUrl = `${location.origin}/2b/${src}`;
             let altText = node.getAttribute('alt') || `附件 ${aid}`;
             if (altText.toLowerCase() === 'attachimg' || altText.trim() === '') altText = `附件 ${aid}`;
-            if (!imageUrl) return `[附件图片 aid=${aid} 加载失败]`;
+            if (!imageUrl) {
+                 console.warn("[Turndown Rule: s1AttachmentImage] 未能找到附件图片的有效 URL:", node.outerHTML); // 添加日志
+                 return `[附件图片 aid=${aid} 加载失败]`;
+            }
+            // ** 添加日志 **
+            console.log(`[Turndown Rule: s1AttachmentImage] Enqueueing: ${imageUrl}`);
             return downloader.enqueue(imageUrl, altText);
         }
     });
     turndownService.addRule('externalImage', {
         filter: (node) => (node.nodeName === 'IMG' && node.getAttribute('src') && node.getAttribute('src').startsWith('http') && !node.hasAttribute('aid') && !node.getAttribute('src').includes('/smiley/')),
-        replacement: (content, node) => downloader.enqueue(node.getAttribute('src'), node.getAttribute('alt') || 'ext_image')
+        replacement: (content, node) => {
+            const src = node.getAttribute('src');
+            const alt = node.getAttribute('alt') || 'ext_image';
+            // ** 添加日志 **
+            console.log(`[Turndown Rule: externalImage] Enqueueing: ${src}`);
+            return downloader.enqueue(src, alt);
+        }
     });
     turndownService.addRule('s1SmileyObsidian', {
         filter: (node) => (node.nodeName === 'IMG' && node.hasAttribute('smilieid') && node.getAttribute('src').includes('/smiley/')),
@@ -294,9 +318,13 @@
             globalTid = await getThreadIdFromPage();
             if (!globalTid) throw new Error("无法获取帖子 TID");
             showStatus('加载页面...');
-            await loadAllPagesAndUnblock();
+            const allPostElements = await loadAllPagesAndUnblock();
+
+            const postsInDOMAfterLoad = document.querySelectorAll('#postlist > div[id^="post_"]');
+            addLog(`[mainExport] loadAllPagesAndUnblock 完成后, DOM 中实际有 ${postsInDOMAfterLoad.length} 个帖子。`); // 也输出到 console
+
             showStatus('正在解析...');
-            const markdown = parseAllPosts(title, url, section);
+            const markdown = parseAllPosts(title, url, section, allPostElements);
             await downloader.processQueue((current, total, filename) => {
                  showStatus(`下载图片 ${current}/${total}...`);
             });
@@ -325,8 +353,9 @@
 
     // --- 11. Page Loading (不变) ---
     async function loadAllPagesAndUnblock() {
+        const allCollectedPosts = [];
         const currentPageEl = document.querySelector('#pgt .pg strong');
-        if (!currentPageEl) return;
+        if (!currentPageEl) return allCollectedPosts; // 如果找不到分页，直接返回空列表
         const totalPagesEl = document.querySelector('#pgt .pg span[title^="共"]');
         let totalPages = 1;
         if (totalPagesEl) {
@@ -340,9 +369,12 @@
         showStatus(`处理 ${currentPage}/${totalPages}...`);
         const currentPosts = Array.from(postList.querySelectorAll(':scope > div[id^="post_"]'));
         await unblockPosts(currentPosts, currentPage);
-        if (currentPage >= totalPages) return;
+        allCollectedPosts.push(...currentPosts); // <--- 新增：收集第一页的帖子
+        // --- 加载后续页 ---
+        if (currentPage >= totalPages) return allCollectedPosts; // 如果只有一页，返回
         for (let i = currentPage + 1; i <= totalPages; i++) {
             showStatus(`加载 ${i}/${totalPages}...`);
+            console.log(`S1 Exporter: 继续处理, 共 ${totalPages} 页, 当前为 ${i} 页.`);
             const pageUrl = `${location.protocol}//${location.host}/2b/thread-${globalTid}-${i}-1.html`;
             const htmlText = await fetchPageHtml(pageUrl); 
             const doc = new DOMParser().parseFromString(htmlText, 'text/html');
@@ -350,17 +382,21 @@
             const newlyAddedPosts = [];
             newPostsHtml.forEach(postNode => {
                 const importedPost = document.importNode(postNode, true);
-                postList.appendChild(importedPost);
                 newlyAddedPosts.push(importedPost);
             });
             showStatus(`解锁 ${i}/${totalPages}...`);
             await unblockPosts(newlyAddedPosts, i);
+
+            allCollectedPosts.push(...newlyAddedPosts);
         }
+
+        console.log(`S1 Exporter: 所有页面加载和解锁完成，共收集到 ${allCollectedPosts.length} 个帖子元素。`);
+        return allCollectedPosts; // <--- 新增：返回收集到的所有帖子元素
     }
     
     async function fetchPageHtml(url) {
         try {
-            const response = await fetch(url, { method: 'GET', credentials: 'omit' });
+            const response = await fetch(url, { method: 'GET', credentials: 'same-origin' });
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return await response.text();
         } catch (error) {
@@ -371,6 +407,7 @@
 
     // --- 12. Content Unblocking (修改版) ---
     async function unblockPosts(postsToCheck, pageNum) {
+        console.log(`S1 Exporter: 尝试解锁, 当前为 ${pageNum} 页.`);
         let needsUnblocking = false;
         const blockedPostElements = [];
         const blockedSelectorString = BLOCKED_TEXT_SELECTORS.join(',');
@@ -500,9 +537,16 @@
     }
     
     // --- 14. Parsing and Downloading (不变) ---
-    function parseAllPosts(title, url, section) {
+    function parseAllPosts(title, url, section, allPostElements) {
         let md = `# ${title}\n\n**版块:** ${section}\n**原帖:** <${url}>\n\n`;
-        const posts = document.querySelectorAll('#postlist > div[id^="post_"]');
+        const posts = allPostElements;
+        console.log(`[parseAllPosts] 函数开始执行，选择器找到了 ${posts.length} 个帖子。`);
+        addLog(`[parseAllPosts] 函数开始执行，选择器找到了 ${posts.length} 个帖子。`); // 输出到 console
+        if (posts.length === 0) {
+            console.error("[parseAllPosts] 错误：选择器没有找到任何帖子！");
+            addLog("[parseAllPosts] 错误：选择器没有找到任何帖子！", 'red');
+            return "[错误：未能解析任何帖子内容]";
+        }
         console.log(`S1 Exporter: 找到 ${posts.length} 个帖子进行最终解析.`);
         posts.forEach(post => {
             const author = post.querySelector('.pi .authi .xw1')?.innerText.trim() || '未知作者';
@@ -532,6 +576,7 @@
                     catch (e) { console.warn(`无法将相对链接转换为绝对链接: ${href}`, e); }
                 }
             });
+            console.log(`[parseAllPosts] Running Turndown for post ${post.id}...`); // 添加日志
             let markdownContent = turndownService.turndown(contentClone);
             md += `---\n\n## ${floor} | ${author} | ${time}\n\n${markdownContent.trim()}\n\n`;
         });

@@ -4,23 +4,31 @@
 // 监听来自 content_script 的下载请求
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'downloadImage') {
+    console.log(`Background: Received download request for ${message.savePath} from ${message.url}`); // 添加日志
     chrome.downloads.download({
       url: message.url,
-      filename: message.savePath,
-      conflictAction: 'overwrite' // 如果文件已存在，则覆盖
+      filename: message.savePath, // 这个路径是相对于默认下载文件夹的
+      conflictAction: 'overwrite'
     }, (downloadId) => {
+      // ** 关键改动：检查 lastError **
       if (chrome.runtime.lastError) {
-        console.error('下载失败:', message.savePath, chrome.runtime.lastError.message);
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-      } else {
-        // console.log('下载任务已创建:', downloadId, message.savePath);
-        // 插件无法轻易知道下载何时 *完成*，
-        // 但我们可以假设任务创建即为“成功”并继续
-        sendResponse({ success: true, downloadId: downloadId });
+        const errorMsg = `下载失败: ${message.savePath} - ${chrome.runtime.lastError.message}`;
+        console.error('Background:', errorMsg);
+        // ** 把错误信息发送回去 **
+        sendResponse({ success: false, error: chrome.runtime.lastError.message, savePath: message.savePath });
+      } else if (downloadId === undefined) {
+        // 有时即使没有 lastError，downloadId 也可能是 undefined (例如 URL 无效)
+        const errorMsg = `下载失败: ${message.savePath} - 未知错误 (downloadId is undefined)`;
+        console.error('Background:', errorMsg);
+        sendResponse({ success: false, error: '未知错误 (downloadId is undefined)', savePath: message.savePath });
+      }
+      else {
+        // console.log('Background: 下载任务已创建:', downloadId, message.savePath);
+        // ** 明确发送成功状态和路径回去 **
+        sendResponse({ success: true, downloadId: downloadId, savePath: message.savePath });
       }
     });
-    // 必须返回 true，因为我们要异步发送响应
-    return true; 
+    return true; // 保持异步
   }
 
   // --- 2. tid 获取器 ---
