@@ -14,12 +14,6 @@
     .option-group { margin-bottom: 15px; border-top: 1px solid #eee; padding-top: 15px; }
     .option-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
     .floor-inputs label { display: inline-block; margin-right: 5px; }
-    .floor-inputs input[type="number"] {
-      width: 70px;
-      padding: 5px;
-      border: 1px solid #ccc;
-      border-radius: 3px;
-    }
     .link-format label { display: inline-block; margin-right: 15px; font-weight: normal; }
     .link-format input[type="radio"] { margin-right: 5px; vertical-align: middle; }
     button {
@@ -30,7 +24,15 @@
     button:hover { background-color: #0056b3; }
     button:disabled { background-color: #aaa; cursor: not-allowed; }
     #status { text-align: center; margin-top: 10px; font-size: 14px; color: #555; }
-    .option-group input[type="number"].small-input { width: 50px; /* 缩小输入框 */ }
+    .option-group input[type="number"] {
+      width: 70px; /* 统一宽度 */
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      margin-right: 10px; /* 增加右边距 */
+    }
+    .download-toggle label { font-weight: normal; }
+    .download-toggle input[type="checkbox"] { margin-right: 5px; vertical-align: middle; }
   </style>
 </head>
 <body>
@@ -47,12 +49,18 @@
   </div>
 
   <div class="option-group">
-      <label for="postsPerPage">每页帖子数 (用于估算加载范围):</label>
-      <input type="number" id="postsPerPage" class="small-input" min="1" value="40">
+      <label for="postsPerPage">每页帖子数 (用于估算需要下载的页面):</label>
+      <input type="number" id="postsPerPage" min="1" value="40">
+  </div>
+
+  <div class="option-group download-toggle">
+      <label>
+          <input type="checkbox" id="downloadImages" checked> 下载图片到本地
+      </label>
   </div>
 
   <div class="option-group">
-    <label>图片链接格式:</label>
+    <label>图片链接格式 (下载时生效):</label>
     <div class="link-format">
       <label>
         <input type="radio" name="linkFormat" value="obsidian" checked> Obsidian (`![[...]]`)

@@ -67,6 +67,11 @@
             this.pathPrefix = this.getFormattedDatePaths();
             this.failedDownloads = [];
             this.linkFormat = 'obsidian';
+            this.downloadEnabled = true;
+        }
+        setDownloadEnabled(enabled) {
+            this.downloadEnabled = !!enabled; // 确保是布尔值
+            console.log(`[ImageDownloader] Image downloading ${this.downloadEnabled ? 'ENABLED' : 'DISABLED'}.`);
         }
         setLinkFormat(format) {
             if (format === 'standard' || format === 'obsidian') {
@@ -109,6 +114,11 @@
         enqueue(imageUrl, altText = 'image') {
             if (!imageUrl || !imageUrl.startsWith('http')) {
                 return `![${altText}](${imageUrl})`;
+            }
+            if (!this.downloadEnabled) {
+                // 确保 alt 文本中的 ] 被转义，防止破坏 Markdown 语法
+                const escapedAlt = altText.replace(/\]/g, '\\]');
+                return `![${escapedAlt}](${imageUrl})`;
             }
             if (this.queue.has(imageUrl)) {
                 const savePath = this.queue.get(imageUrl);
@@ -315,6 +325,7 @@
         showStatus('准备中...');
         downloader = new ImageDownloader();
         downloader.setLinkFormat(options.linkFormat);
+        downloader.setDownloadEnabled(options.downloadImages);
         try {
             const data = await chrome.storage.local.get(SID_STORAGE_KEY);
             appSid = data[SID_STORAGE_KEY] || null;

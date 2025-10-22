@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusEl = document.getElementById('status');
   const startFloorInput = document.getElementById('startFloor');
   const endFloorInput = document.getElementById('endFloor');
-  const postsPerPageInput = document.getElementById('postsPerPage'); // ** 新增 **
+  const postsPerPageInput = document.getElementById('postsPerPage');
+  const downloadImagesCheckbox = document.getElementById('downloadImages'); 
   let currentTab = null;
 
   // 1. 查询当前活动的 S1 标签页
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const startFloorStr = startFloorInput.value;
     const endFloorStr = endFloorInput.value;
     const postsPerPageStr = postsPerPageInput.value;
+    const downloadImages = downloadImagesCheckbox.checked;
     const linkFormat = document.querySelector('input[name="linkFormat"]:checked').value;
 
     // 转换为数字，留空则为 null
@@ -71,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
       startFloor: startFloor,
       endFloor: endFloor,
       postsPerPage: postsPerPage,
+      downloadImages: downloadImages,
       linkFormat: linkFormat
     };
 
