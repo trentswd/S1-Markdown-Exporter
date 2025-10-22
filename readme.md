@@ -15,15 +15,26 @@
 * **保留排版:** 妥善处理S1的引用、表情符号和用户评分。
 * **灵活选项:** 允许在弹出窗口中自定义导出的楼层范围、是否下载图片等。
 
+## 安装方法 (开发者模式)
+
+由于本插件未上架 Chrome 商店，您需要通过开发者模式手动安装：
+
+1.  **下载插件:** 在本 GitHub 仓库页面，点击绿色的 `Code` 按钮，然后选择 `Download ZIP`。
+2.  **解压文件:** 将下载的 `.zip` 文件 (例如 `S1-Exporter-Plugin-main.zip`) 解压到你电脑上一个**固定**的文件夹（请勿删除此文件夹，否则插件将失效）。
+3.  **打开扩展页面:** 打开 Chrome 浏览器，在地址栏输入 `chrome://extensions` 并回车。
+4.  **开启开发者模式:** 在页面右上角，找到 “开发者模式” (Developer mode) 并打开开关。
+5.  **加载插件:** 点击页面左上角出现的 “加载已解压的扩展程序” (Load unpacked) 按钮。
+6.  **选择文件夹:** 在弹出的文件选择框中，选择你**刚刚解压的那个文件夹**（即包含 `manifest.json` 文件的文件夹）。
+7.  安装完成！你现在应该能在工具栏看到 **台球图标**。
+
 ## 如何使用
 
-1.  从 Chrome 网上应用店安装（或在开发者模式下本地加载）。
-2.  打开任意一个 S1 帖子页面 (例如 `bbs.saraba1st.com/2b/thread-*-1-1.html`)。
-3.  点击浏览器工具栏上的插件图标（S1娘头像）。
-4.  在弹出的窗口中设置你的选项（例如楼层范围、图片链接格式）。
-5.  点击 **“开始导出”**。
-6.  **[关于登录]** 如果帖子中有被屏蔽的内容，插件会弹出一个登录框。这是为了调用 S1 官方 App API，需要您**单独登录一次** S1 帐号。
-7.  等待处理完成（状态栏会显示进度），Markdown 文件和图片将自动下载到你的“下载”文件夹中。
+1.  (安装完成后) 打开任意一个 S1 帖子页面 (例如 `bbs.saraba1st.com/2b/thread-*-1-1.html`)。
+2.  点击浏览器工具栏上的插件图标（**台球图标**）。
+3.  在弹出的窗口中设置你的选项（例如楼层范围、图片链接格式）。
+4.  点击 **“开始导出”**。
+5.  **[关于登录]** 如果帖子中有被屏蔽的内容，插件会弹出一个登录框。这是为了调用 S1 官方 App API，需要您**单独登录一次** S1 帐号。
+6.  等待处理完成（状态栏会显示进度），Markdown 文件和图片将自动下载到你的“下载”文件夹中。
 
 ## 隐私政策
 
@@ -60,28 +71,39 @@ It doesn't just scrape the current page; it automatically loads all pages, unblo
 * **Preserve Formatting:** Correctly handles S1 quotes, smilies, and user ratings.
 * **Flexible Options:** Provides a popup UI to customize the floor range, image download settings, and link format.
 
+## Installation (Developer Mode)
+
+This extension is not on the Chrome Web Store. You must install it manually using Developer Mode:
+
+1.  **Download:** On this GitHub repository page, click the green `Code` button and select `Download ZIP`.
+2.  **Unzip:** Unzip the downloaded `.zip` file into a **permanent** folder on your computer (if you delete this folder, the extension will stop working).
+3.  **Open Extensions Page:** Open Chrome, type `chrome://extensions` into the address bar, and press Enter.
+4.  **Enable Developer Mode:** Find the "Developer mode" toggle in the top-right corner and turn it on.
+5.  **Load Extension:** Click the "Load unpacked" button that appears in the top-left.
+6.  **Select Folder:** In the file dialog, select the **folder you just unzipped** (the one containing `manifest.json`).
+7.  Done! You should now see the **billiard ball icon** in your browser toolbar.
+
 ## How to Use
 
-1.  Install from the Chrome Web Store (or load unpacked in developer mode).
-2.  Navigate to any S1 thread (e.g., `bbs.saraba1st.com/2b/thread-*-1-1.html`).
-3.  Click the extension icon (S1 avatar) in your browser toolbar.
-4.  Configure your options in the popup (e.g., floor range, link format).
-5.  Click **"Start Export"**.
-6.  **[Login Notice]** If the thread contains restricted content, the extension will show a login prompt. This is necessary to use the **official S1 App API** and requires you to log in to your S1 account separately.
-7.  Wait for the process to complete (the status bar will show progress). The Markdown file and images will be automatically saved to your "Downloads" folder.
+1.  (After installation) Navigate to any S1 thread (e.g., `bbs.saraba1st.com/2b/thread-*-1-1.html`).
+2.  Click the extension icon (the **billiard ball**) in your browser toolbar.
+3.  Configure your options in the popup (e.g., floor range, link format).
+4.  Click **"Start Export"**.
+5.  **[Login Notice]** If the thread contains restricted content, the extension will show a login prompt. This is necessary to use the **official S1 App API** and requires you to log in to your S1 account separately.
+6.  Wait for the process to complete (the status bar will show progress). The Markdown file and images will be automatically saved to your "Downloads" folder.
 
 ## Privacy Policy
 
 Your privacy is taken seriously.
 
 1.  **Login Credentials:** When the extension prompts you to log in, your username and password are **only sent directly to the official Stage1st App API** (`app.stage1st.com`) to obtain a session token (`sid`).
-2.  **Data Storage:** The extension **never** stores your username or password. It only stores the session token (`sid`) returned by S1 in your browser's local storage (`chrome.storage.local`) for future API requests. This token never leaves your computer.
+2.  **DataStorage:** The extension **never** stores your username or password. It only stores the session token (`sid`) returned by S1 in your browser's local storage (`chrome.storage.local`) for future API requests. This token never leaves your computer.
 3.  **Content Processing:** All post content scraping, parsing, and image downloading are done **entirely locally** within your browser. **No post content or personal data** is ever sent to the extension developer or any other third party.
 
 ## Credits
 
 The core logic for unblocking restricted content (by calling the App API) in this extension is based on the work from this excellent Greasy Fork script:
 
-* **[View S1 Invisible Content (Review/Banned/Auto)](https://greasyfork.org/zh-CN/scripts/419494-%E6%9F%A5%E7%9C%8Bs1%E4%B8%8D%E5%8F%AF%E8%A7%81%E5%86%85%E5%AE%B9-%E5%AE%A1%E6%A0%B8%E4%B8%AD-%E7%A6%81%E8%A8%80-%E8%87%AA%E5%8A%A8%E7%89%88)**
+* **[View S1 Invisible Content (Review/Banned/Auto)](https://greasyfork.org/zh-CN/scripts/419494-%E6%9F%A5%E7%9C%8Bs1%E4%B8%8D%E5%8F%AF%E8%A7%81%E5%86%85%E5%AE%B9-%E5%AE_A1%E6%A0%B8%E4%B8%AD-%E7%A6%81%E8%A8%80-%E8%87%AA%E5%8A%A8%E7%89%88)**
 
 Thanks to the original author for their contribution.
