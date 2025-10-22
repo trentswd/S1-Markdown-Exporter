@@ -29,7 +29,6 @@
       ],
       "js": [
         "lib/jquery.min.js",
-        "lib/jsrender.min.js",
         "lib/turndown.js",
         "content_script.js"
       ],

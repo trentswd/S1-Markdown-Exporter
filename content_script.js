@@ -320,9 +320,6 @@
             showStatus('加载页面...');
             const allPostElements = await loadAllPagesAndUnblock();
 
-            const postsInDOMAfterLoad = document.querySelectorAll('#postlist > div[id^="post_"]');
-            addLog(`[mainExport] loadAllPagesAndUnblock 完成后, DOM 中实际有 ${postsInDOMAfterLoad.length} 个帖子。`); // 也输出到 console
-
             showStatus('正在解析...');
             const markdown = parseAllPosts(title, url, section, allPostElements);
             await downloader.processQueue((current, total, filename) => {
