@@ -386,16 +386,19 @@
         let actualStartPage = null; // 记录实际加载的起始页
         let actualEndPage = null;   // 记录实际加载的结束页
 
+        let totalPages = 1;
+        let currentPage = 1;
+
         const currentPageEl = document.querySelector('#pgt .pg strong');
-        if (!currentPageEl) return { allPostElements: [], actualStartPage, actualEndPage };
+        if (currentPageEl) {
+            currentPage = parseInt(currentPageEl.innerText, 10);
+        }
 
         const totalPagesEl = document.querySelector('#pgt .pg span[title^="共"]');
-        let totalPages = 1;
         if (totalPagesEl) {
              const totalPagesMatch = totalPagesEl.innerText.match(/\/ (\d+) 页/);
              if (totalPagesMatch) totalPages = parseInt(totalPagesMatch[1], 10);
         }
-        const currentPage = parseInt(currentPageEl.innerText, 10);
         const postList = document.getElementById('postlist');
         if (!postList) throw new Error("无法找到 #postlist 元素");
         console.log(`S1 Exporter: 总 ${totalPages} 页, 当前 ${currentPage} 页. 请求楼层 ${startFloor ?? 'N/A'}-${endFloor ?? 'N/A'}, 每页 ${postsPerPage}.`);
