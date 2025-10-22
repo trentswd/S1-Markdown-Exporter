@@ -66,6 +66,16 @@
             this.filenamesInZip = new Set();
             this.pathPrefix = this.getFormattedDatePaths();
             this.failedDownloads = [];
+            this.linkFormat = 'obsidian';
+        }
+        setLinkFormat(format) {
+            if (format === 'standard' || format === 'obsidian') {
+                this.linkFormat = format;
+                console.log(`[ImageDownloader] Link format set to: ${this.linkFormat}`);
+            } else {
+                console.warn(`[ImageDownloader] Invalid link format specified: ${format}. Using default 'obsidian'.`);
+                this.linkFormat = 'obsidian';
+            }
         }
         getFormattedDatePaths() {
             const now = new Date();
@@ -101,7 +111,13 @@
                 return `![${altText}](${imageUrl})`;
             }
             if (this.queue.has(imageUrl)) {
-                return `![[${this.queue.get(imageUrl)}]]`;
+                const savePath = this.queue.get(imageUrl);
+                if (this.linkFormat === 'standard') {
+                    // 标准格式需要对路径进行 URL 编码，特别是如果包含空格或特殊字符
+                    return `![${altText}](${encodeURI(savePath)})`;
+                } else {
+                    return `![[${savePath}]]`;
+                }
             }
             let originalFilename;
             try {
@@ -114,7 +130,11 @@
             const newSavePath = this.getUniqueFilename(originalFilename);
             this.queue.set(imageUrl, newSavePath);
             addLog(`S1 Exporter: 入队图片， ${imageUrl}, ${altText},${newSavePath}`)
-            return `![[${newSavePath}]]`;
+            if (this.linkFormat === 'standard') {
+                return `![${altText}](${encodeURI(newSavePath)})`;
+            } else {
+                return `![[${newSavePath}]]`;
+            }
         }
         async processQueue(updateCallback) {
             const total = this.queue.size;
@@ -290,10 +310,11 @@
     // (入口点已改为消息监听)
 
     // --- 10. Core Export Logic (不变) ---
-    async function mainExport() {
+    async function mainExport(options) {
         window.s1ExportRunning = true; 
         showStatus('准备中...');
         downloader = new ImageDownloader();
+        downloader.setLinkFormat(options.linkFormat);
         try {
             const data = await chrome.storage.local.get(SID_STORAGE_KEY);
             appSid = data[SID_STORAGE_KEY] || null;
@@ -318,10 +339,11 @@
             globalTid = await getThreadIdFromPage();
             if (!globalTid) throw new Error("无法获取帖子 TID");
             showStatus('加载页面...');
-            const allPostElements = await loadAllPagesAndUnblock();
-
-            showStatus('正在解析...');
-            const markdown = parseAllPosts(title, url, section, allPostElements);
+            const { allPostElements, actualStartPage, actualEndPage } = await loadAllPagesAndUnblock(options.startFloor, options.endFloor, options.postsPerPage); // <--- 修改
+            
+            const pageRangeInfo = actualStartPage !== null ? `(实际加载: ${actualStartPage}-${actualEndPage})` : "";
+            showStatus(`正在解析 ${pageRangeInfo}...`);
+            const markdown = parseAllPosts(title, url, section, allPostElements, options.startFloor, options.endFloor);
             await downloader.processQueue((current, total, filename) => {
                  showStatus(`下载图片 ${current}/${total}...`);
             });
@@ -349,10 +371,14 @@
     }
 
     // --- 11. Page Loading (不变) ---
-    async function loadAllPagesAndUnblock() {
+    async function loadAllPagesAndUnblock(startFloor, endFloor, postsPerPage) {
         const allCollectedPosts = [];
+        let actualStartPage = null; // 记录实际加载的起始页
+        let actualEndPage = null;   // 记录实际加载的结束页
+
         const currentPageEl = document.querySelector('#pgt .pg strong');
-        if (!currentPageEl) return allCollectedPosts; // 如果找不到分页，直接返回空列表
+        if (!currentPageEl) return { allPostElements: [], actualStartPage, actualEndPage };
+
         const totalPagesEl = document.querySelector('#pgt .pg span[title^="共"]');
         let totalPages = 1;
         if (totalPagesEl) {
@@ -362,33 +388,85 @@
         const currentPage = parseInt(currentPageEl.innerText, 10);
         const postList = document.getElementById('postlist');
         if (!postList) throw new Error("无法找到 #postlist 元素");
-        console.log(`S1 Exporter: 开始处理, 共 ${totalPages} 页, 当前为 ${currentPage} 页.`);
-        showStatus(`处理 ${currentPage}/${totalPages}...`);
-        const currentPosts = Array.from(postList.querySelectorAll(':scope > div[id^="post_"]'));
-        await unblockPosts(currentPosts, currentPage);
-        allCollectedPosts.push(...currentPosts); // <--- 新增：收集第一页的帖子
-        // --- 加载后续页 ---
-        if (currentPage >= totalPages) return allCollectedPosts; // 如果只有一页，返回
-        for (let i = currentPage + 1; i <= totalPages; i++) {
-            showStatus(`加载 ${i}/${totalPages}...`);
-            console.log(`S1 Exporter: 继续处理, 共 ${totalPages} 页, 当前为 ${i} 页.`);
-            const pageUrl = `${location.protocol}//${location.host}/2b/thread-${globalTid}-${i}-1.html`;
-            const htmlText = await fetchPageHtml(pageUrl); 
-            const doc = new DOMParser().parseFromString(htmlText, 'text/html');
-            const newPostsHtml = doc.querySelectorAll('#postlist > div[id^="post_"]');
-            const newlyAddedPosts = [];
-            newPostsHtml.forEach(postNode => {
-                const importedPost = document.importNode(postNode, true);
-                newlyAddedPosts.push(importedPost);
-            });
-            showStatus(`解锁 ${i}/${totalPages}...`);
-            await unblockPosts(newlyAddedPosts, i);
+        console.log(`S1 Exporter: 总 ${totalPages} 页, 当前 ${currentPage} 页. 请求楼层 ${startFloor ?? 'N/A'}-${endFloor ?? 'N/A'}, 每页 ${postsPerPage}.`);
 
-            allCollectedPosts.push(...newlyAddedPosts);
+        // --- ** 计算目标页面范围 ** ---
+        let targetStartPage = 1;
+        let targetEndPage = totalPages;
+
+        if (startFloor !== null || endFloor !== null) {
+            // 如果指定了楼层，则计算范围
+            if (startFloor !== null) {
+                targetStartPage = Math.max(1, Math.floor((startFloor - 1) / postsPerPage) + 1); // -1 是因为楼层从1开始
+            }
+            if (endFloor !== null) {
+                targetEndPage = Math.min(totalPages, Math.floor((endFloor - 1) / postsPerPage) + 1);
+            }
+
+            // 添加左右各一页的余量
+            targetStartPage = Math.max(1, targetStartPage - 1);
+            targetEndPage = Math.min(totalPages, targetEndPage + 1);
+
+            console.log(`[Optimize] Calculated target page range: ${targetStartPage} - ${targetEndPage}`);
+        } else {
+            console.log(`[Optimize] No floor range specified, loading all pages: 1 - ${totalPages}`);
+        }
+        
+        // 记录实际加载范围的起始
+        actualStartPage = targetStartPage;
+        actualEndPage = targetEndPage;
+        
+        for (let i = targetStartPage; i <= targetEndPage; i++) {
+            actualEndPage = i; 
+            if (i === currentPage) {
+                 // --- 处理当前（第一）页 ---
+                 showStatus(`处理 ${i}/${totalPages}...`);
+                 console.log(`处理当前页 (${i})`);
+                 const originalCurrentPosts = Array.from(postList.querySelectorAll(':scope > div[id^="post_"]'));
+                 await unblockPosts(originalCurrentPosts, i); // 解锁原始 DOM
+                 
+                 // 重新解析以确保一致性 (V3.7 逻辑)
+                 console.log(`重新解析当前页 (${i})...`);
+                 const firstPageHtml = postList.innerHTML;
+                 const firstPageDoc = new DOMParser().parseFromString(`<body><div id="postlist">${firstPageHtml}</div></body>`, 'text/html');
+                 const reparsedCurrentPosts = Array.from(firstPageDoc.querySelectorAll('#postlist > div[id^="post_"]'));
+                 
+                 allCollectedPosts.push(...reparsedCurrentPosts);
+                 console.log(`当前页 (${i}) 处理完成，添加 ${reparsedCurrentPosts.length} 帖子。`);
+
+             } else {
+                 // --- 处理非当前页（需要 fetch） ---
+                 showStatus(`加载 ${i}/${totalPages}...`);
+                 console.log(`加载目标页 (${i})`);
+                 const pageUrl = `${location.protocol}//${location.host}/2b/thread-${globalTid}-${i}-1.html`;
+                 let htmlText;
+                 try { htmlText = await fetchPageHtml(pageUrl); }
+                 catch (fetchError) { console.error(`Page ${i}: 获取 HTML 失败!`, fetchError); continue; }
+
+                 const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+                 const newPostsHtmlStrict = doc.querySelectorAll('#postlist > div[id^="post_"]');
+                 const newPostsHtmlDescendant = doc.querySelectorAll('#postlist div[id^="post_"]');
+                 const postsToParse = (newPostsHtmlStrict.length > 0) ? newPostsHtmlStrict : newPostsHtmlDescendant;
+
+                 const newlyAddedPosts = [];
+                 postsToParse.forEach(postNode => newlyAddedPosts.push(postNode));
+
+                 if (newlyAddedPosts.length === 0) {
+                      const onlyIdPosts = doc.querySelectorAll('div[id^="post_"]');
+                      if(onlyIdPosts.length > 0) console.warn(`[V3.9] Page ${i}: 找到了帖子，但不在 #postlist 下！`);
+                      else console.warn(`[V3.9] Page ${i}: 未找到任何帖子元素！跳过。`);
+                      continue;
+                 }
+
+                 showStatus(`解锁 ${i}/${totalPages}...`);
+                 await unblockPosts(newlyAddedPosts, i); // 解锁从 doc 解析出的节点
+                 allCollectedPosts.push(...newlyAddedPosts);
+                 console.log(`目标页 (${i}) 处理完成，添加 ${newlyAddedPosts.length} 帖子。`);
+             }
         }
 
         console.log(`S1 Exporter: 所有页面加载和解锁完成，共收集到 ${allCollectedPosts.length} 个帖子元素。`);
-        return allCollectedPosts; // <--- 新增：返回收集到的所有帖子元素
+        return { allPostElements: allCollectedPosts, actualStartPage, actualEndPage };
     }
     
     async function fetchPageHtml(url) {
@@ -532,12 +610,21 @@
             $('#login-dialog div:last-child').text('登录请求失败，请检查网络。');
         }
     }
-    
+
+    function parseFloorNumber(floorStr) {
+        if (!floorStr) return null;
+        // 显式处理楼主
+        if (floorStr.includes('楼主')) return 1;
+        // 尝试从 "数字#" 或纯数字中提取
+        const match = floorStr.match(/^(\d+)/);
+        return match ? parseInt(match[1], 10) : null;
+    }
     // --- 14. Parsing and Downloading (不变) ---
-    function parseAllPosts(title, url, section, allPostElements) {
+    function parseAllPosts(title, url, section, allPostElements, startFloor, endFloor) {
         let md = `# ${title}\n\n**版块:** ${section}\n**原帖:** <${url}>\n\n`;
         const posts = allPostElements;
-        console.log(`[parseAllPosts] 函数开始执行，选择器找到了 ${posts.length} 个帖子。`);
+        let includedPostCount = 0; // 记录实际包含的帖子数
+        
         addLog(`[parseAllPosts] 函数开始执行，选择器找到了 ${posts.length} 个帖子。`); // 输出到 console
         if (posts.length === 0) {
             console.error("[parseAllPosts] 错误：选择器没有找到任何帖子！");
@@ -545,7 +632,44 @@
             return "[错误：未能解析任何帖子内容]";
         }
         console.log(`S1 Exporter: 找到 ${posts.length} 个帖子进行最终解析.`);
-        posts.forEach(post => {
+        posts.forEach((post, index) => {
+            const floorElement = post.querySelector('.pi strong a[id^="postnum"]');
+            const floorStr = floorElement ? floorElement.innerText.trim() : 'N/A';
+            const floorNum = parseFloorNumber(floorStr);
+
+            // --- ** 调试日志 ** ---
+            console.log(`[Debug] Post Index ${index}, Element ID ${post.id}, Floor Str: "${floorStr}", Parsed Floor Num: ${floorNum}`);
+
+            // --- 楼层过滤逻辑 ---
+            let skip = false;
+            if (floorNum !== null) {
+                if (startFloor !== null && floorNum < startFloor) {
+                    console.log(`[Filter] Skipping floor ${floorNum} (< start ${startFloor})`);
+                    skip = true;
+                }
+                if (endFloor !== null && floorNum > endFloor) {
+                    console.log(`[Filter] Skipping floor ${floorNum} (> end ${endFloor})`);
+                    skip = true;
+                }
+            } else {
+                // 对于无法解析楼层的帖子，我们默认 *包含* 它，除非显式设置了范围
+                // 如果设置了范围，但无法解析楼层，通常也跳过？（或者可以改为包含？）
+                // 目前逻辑：如果设置了范围，但无法解析，则跳过
+                 if (startFloor !== null || endFloor !== null) {
+                      console.warn(`[Filter] Skipping post ${post.id} because floor "${floorStr}" could not be parsed and a range was specified.`);
+                      skip = true;
+                 } else {
+                      console.log(`[Filter] Including post ${post.id} with unparsed floor "${floorStr}" because no range specified.`);
+                 }
+            }
+
+            if (skip) {
+                return; // 跳过当前 forEach 迭代
+            }
+            // --- 过滤结束 ---
+
+            includedPostCount++;
+
             const author = post.querySelector('.pi .authi .xw1')?.innerText.trim() || '未知作者';
             let floor = post.querySelector('.pi strong a[id^="postnum"]')?.innerText.trim() || 'N/A';
             const time = post.querySelector('em[id^="authorposton"]')?.innerText.replace('发表于 ', '').trim() || '未知时间';
@@ -627,7 +751,16 @@
                 sendResponse({ status: "already_running" });
                 return true; 
             }
-            mainExport();
+            const options = message.options || {
+                startFloor: null,
+                endFloor: null,
+                postsPerPage: 40, // 默认值
+                linkFormat: 'obsidian' // 默认值
+            };
+            console.log("Received export request with options:", options);
+
+            // ** 将选项传递给 mainExport **
+            mainExport(options); // <--- 修改
             sendResponse({ status: "started" });
         }
         return true; 
