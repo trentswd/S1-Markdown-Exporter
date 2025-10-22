@@ -1,4 +1,4 @@
-// S1-Exporter-Plugin/popup.js (V3.8)
+// S1-Exporter-Plugin/popup.js 
 
 document.addEventListener('DOMContentLoaded', () => {
   const exportButton = document.getElementById('exportButton');

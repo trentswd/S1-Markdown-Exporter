@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "S1 Markdown Exporter (V3.1 - 弹出版)",
-  "version": "3.1",
+  "name": "S1 Markdown Exporter",
+  "version": "1.0",
   "description": "点击插件图标，导出S1帖子为Markdown，解锁内容并流式下载附件。",
   "permissions": [
     "storage",

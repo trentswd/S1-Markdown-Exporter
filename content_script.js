@@ -1,8 +1,8 @@
-// S1-Exporter-Plugin/content_script.js (V3.3 - 移除 JsRender, 修复 CSP)
+// S1-Exporter-Plugin/content_script.js
 (function() {
     'use strict';
 
-    // --- 0. 检查依赖 (V3.3 修复版) ---
+    // --- 0. 检查依赖 ---
     // 移除了 JsRender (jQuery.templates) 的检查
     if (typeof jQuery === 'undefined') {
         console.error('S1 Exporter: 依赖 (jQuery) 未能正确加载！脚本停止。');
@@ -24,7 +24,6 @@
     // --- 3. Dependencies Setup ---
     const $ = jQuery.noConflict(true);
     
-    // ** 插入了 V3.2.1 修复 **
     const turndownService = new TurndownService({
         headingStyle: 'atx',
         codeBlockStyle: 'fenced',
@@ -436,7 +435,6 @@
                  const originalCurrentPosts = Array.from(postList.querySelectorAll(':scope > div[id^="post_"]'));
                  await unblockPosts(originalCurrentPosts, i); // 解锁原始 DOM
                  
-                 // 重新解析以确保一致性 (V3.7 逻辑)
                  console.log(`重新解析当前页 (${i})...`);
                  const firstPageHtml = postList.innerHTML;
                  const firstPageDoc = new DOMParser().parseFromString(`<body><div id="postlist">${firstPageHtml}</div></body>`, 'text/html');
@@ -464,8 +462,8 @@
 
                  if (newlyAddedPosts.length === 0) {
                       const onlyIdPosts = doc.querySelectorAll('div[id^="post_"]');
-                      if(onlyIdPosts.length > 0) console.warn(`[V3.9] Page ${i}: 找到了帖子，但不在 #postlist 下！`);
-                      else console.warn(`[V3.9] Page ${i}: 未找到任何帖子元素！跳过。`);
+                      if(onlyIdPosts.length > 0) console.warn(`Page ${i}: 找到了帖子，但不在 #postlist 下！`);
+                      else console.warn(`Page ${i}: 未找到任何帖子元素！跳过。`);
                       continue;
                  }
 
@@ -810,6 +808,6 @@
     });
 
     // --- 启动 ---
-    console.log("S1 Exporter (v3.3 - CSP 修复版) 已加载。");
+    console.log("S1 Exporter 已加载。");
 
 })();
