@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "S1 Markdown Exporter (V3.1 - 弹出版)",
+  "version": "3.1",
+  "description": "点击插件图标，导出S1帖子为Markdown，解锁内容并流式下载附件。",
+  "permissions": [
+    "storage",
+    "downloads",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://app.stage1st.com/2b/api/app/*",
+    "https://*.stage1st.com/2b/thread-*",
+    "https://*.stage1st.com/2b/forum.php*tid=*",
+    "https://*.bbs.saraba1st.com/2b/thread-*",
+    "https://*.bbs.saraba1st.com/2b/forum.php*tid=*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.stage1st.com/2b/thread-*",
+        "https://*.stage1st.com/2b/forum.php*tid=*",
+        "https://*.bbs.saraba1st.com/2b/thread-*",
+        "https://*.bbs.saraba1st.com/2b/forum.php*tid=*"
+      ],
+      "js": [
+        "lib/jquery.min.js",
+        "lib/jsrender.min.js",
+        "lib/turndown.js",
+        "content_script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
