@@ -700,6 +700,38 @@
             console.log(`[parseAllPosts] Running Turndown for post ${post.id}...`); // 添加日志
             let markdownContent = turndownService.turndown(contentClone);
             md += `---\n\n## ${floor} | ${author} | ${time}\n\n${markdownContent.trim()}\n\n`;
+            // --- ** 新增：解析评分部分 ** ---
+            const rateLogElement = post.querySelector(`dl[id^="ratelog_"]`); // 查找评分 dl 元素
+            if (rateLogElement) {
+                const rateTable = rateLogElement.querySelector('table.ratl');
+                if (rateTable) {
+                    const rows = rateTable.querySelectorAll('tbody.ratl_l tr'); // 获取评分记录行
+                    const header = rateTable.querySelector('tbody tr'); // 获取表头信息
+                    let summary = '';
+                    if (header) {
+                         const participants = header.querySelector('th:nth-child(1) span')?.innerText || '?';
+                         const points = header.querySelector('th:nth-child(2) i span')?.innerText || '?';
+                         summary = ` (参与人数 \`${participants}\`, 总战斗力 \`${points}\`)`;
+                    }
+
+                    if (rows.length > 0) {
+                        md += `> **评分**${summary}:\n`; // 使用引用块来表示评分
+                        rows.forEach(row => {
+                            const userLink = row.querySelector('td:nth-child(1) a:last-of-type');
+                            const user = userLink ? userLink.innerText.trim() : '匿名';
+                            const score = row.querySelector('td:nth-child(2)')?.innerText.trim() || '?';
+                            const reason = row.querySelector('td:nth-child(3)')?.innerText.trim() || '';
+                            let escapedUser = user;
+                            if (/^\d+\./.test(user)) {
+                                escapedUser = user.replace('.', '\\.'); 
+                            }
+                            md += `> - ${escapedUser} \`${score}\` ${reason}\n`;
+                        });
+                        md += `>\n\n`; // 引用块结束后的空行
+                    }
+                }
+            }
+            // --- ** 评分解析结束 ** ---
         });
         return md;
     }
