@@ -901,8 +901,9 @@
         return chunks;
     }
 
-    // --- 16. 消息监听器 (不变) ---
+    // --- 16. 消息监听器 (修改版：增加 getTidAndSettings) ---
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        
         if (message.type === 'startExport') {
             if (window.s1ExportRunning) {
                 console.warn("S1 Exporter: 导出已在进行中！");
@@ -912,15 +913,64 @@
             const options = message.options || {
                 startFloor: null,
                 endFloor: null,
-                postsPerPage: 40, // 默认值
-                linkFormat: 'obsidian' // 默认值
+                postsPerPage: 40,
+                downloadImages: true,
+                linkFormat: 'obsidian',
+                emoteFormat: 'obsidian',
+                postsPerFile: null,
+                startFile: null,
+                endFile: null
             };
-            console.log("Received export request with options:", options);
-
-            // ** 将选项传递给 mainExport **
-            mainExport(options); // <--- 修改
+            
+            mainExport(options); 
             sendResponse({ status: "started" });
+            return true; 
         }
+
+        // [新增] 响应来自 popup.js 的请求，获取TID和对应的设置
+        if (message.type === 'getTidAndSettings') {
+            (async () => {
+                try {
+                    const tid = await getThreadIdFromPage();
+                    let settings = null;
+                    if (tid) {
+                        const storageKey = `s1_exporter_settings_${tid}`;
+                        const settingsJson = localStorage.getItem(storageKey);
+                        if (settingsJson) {
+                            settings = JSON.parse(settingsJson);
+                            console.log(`[ContentScript] Found settings for ${tid}:`, settings);
+                        }
+                    }
+                    // 无论是否有设置，都返回TID
+                    sendResponse({ tid: tid, settings: settings });
+                } catch (e) {
+                    console.error("[ContentScript] Error getting TID or settings:", e);
+                    sendResponse({ tid: null, settings: null, error: e.message });
+                }
+            })();
+            return true; // 保持异步消息通道开放
+        }
+
+        // [新增] 响应来自 popup.js 的保存请求
+        if (message.type === 'saveSettings') {
+            const { tid, options } = message;
+            if (tid) {
+                try {
+                    const storageKey = `s1_exporter_settings_${tid}`;
+                    localStorage.setItem(storageKey, JSON.stringify(options));
+                    console.log(`[ContentScript] Settings for ${tid} saved.`);
+                    sendResponse({ status: "saved" });
+                } catch (e) {
+                    console.error("[ContentScript] Failed to save settings:", e);
+                    sendResponse({ status: "error", error: e.message });
+                }
+            } else {
+                console.warn("[ContentScript] Save request received without TID.");
+                sendResponse({ status: "error", error: "No TID provided" });
+            }
+            return true; // 保持异步
+        }
+        
         return true; 
     });
 
