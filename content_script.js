@@ -58,18 +58,18 @@
         }
     }
 
-    // --- 5. 下载器类 (不变) ---
+// --- 5. 下载器类 (修改版：支持 tid 和 s1_page) ---
     class ImageDownloader {
-        constructor() {
+        constructor(tid) {
             this.queue = new Map();
             this.filenamesInZip = new Set();
-            this.pathPrefix = this.getFormattedDatePaths();
             this.failedDownloads = [];
             this.linkFormat = 'obsidian';
             this.downloadEnabled = true;
+            this.tid = tid || 'unknown_tid'; // [新增]
         }
         setDownloadEnabled(enabled) {
-            this.downloadEnabled = !!enabled; // 确保是布尔值
+            this.downloadEnabled = !!enabled;
             console.log(`[ImageDownloader] Image downloading ${this.downloadEnabled ? 'ENABLED' : 'DISABLED'}.`);
         }
         setLinkFormat(format) {
@@ -81,15 +81,9 @@
                 this.linkFormat = 'obsidian';
             }
         }
-        getFormattedDatePaths() {
-            const now = new Date();
-            const YYYY = now.getFullYear();
-            const MM = (now.getMonth() + 1).toString().padStart(2, '0');
-            const DD = now.getDate().toString().padStart(2, '0');
-            const HH = now.getHours().toString().padStart(2, '0');
-            return `${YYYY}/${YYYY}-${MM}/${DD}-${HH}/`;
-        }
-        getUniqueFilename(originalFilename) {
+        
+        // [修改] 路径生成逻辑
+        getUniqueFilename(originalFilename, s1Page) {
             let baseName, extension;
             const dotIndex = originalFilename.lastIndexOf('.');
             if (dotIndex === -1 || dotIndex === 0) {
@@ -100,29 +94,39 @@
                 extension = originalFilename.substring(dotIndex);
             }
             baseName = baseName.replace(/[:*?"<>|]/g, '_');
+            
+            // [修改] 使用新的路径前缀
+            const pathPrefix = `${this.tid}/${s1Page}/`;
+            
             let finalFilename = baseName + extension;
             let counter = 1;
-            while (this.filenamesInZip.has(this.pathPrefix + finalFilename)) {
+            
+            // [修改] 检查完整路径
+            while (this.filenamesInZip.has(pathPrefix + finalFilename)) {
                 finalFilename = `${baseName}-${counter}${extension}`;
                 counter++;
             }
-            const fullPath = this.pathPrefix + finalFilename;
+            const fullPath = pathPrefix + finalFilename;
             this.filenamesInZip.add(fullPath);
             return fullPath;
         }
-        enqueue(imageUrl, altText = 'image') {
+
+        // [修改] 增加 'node' 参数
+        enqueue(imageUrl, altText = 'image', node) {
             if (!imageUrl || !imageUrl.startsWith('http')) {
                 return `![${altText}](${imageUrl})`;
             }
             if (!this.downloadEnabled) {
-                // 确保 alt 文本中的 ] 被转义，防止破坏 Markdown 语法
                 const escapedAlt = altText.replace(/\]/g, '\\]');
                 return `![${escapedAlt}](${imageUrl})`;
             }
+            
+            // [新增] 从 node 获取 s1_page
+            const s1Page = node?.dataset.s1Page || 'unknown_page';
+            
             if (this.queue.has(imageUrl)) {
                 const savePath = this.queue.get(imageUrl);
                 if (this.linkFormat === 'standard') {
-                    // 标准格式需要对路径进行 URL 编码，特别是如果包含空格或特殊字符
                     return `![${altText}](${encodeURI(savePath)})`;
                 } else {
                     return `![[${savePath}]]`;
@@ -136,16 +140,21 @@
             } catch (e) {
                 originalFilename = altText;
             }
-            const newSavePath = this.getUniqueFilename(originalFilename);
+            
+            // [修改] 传递 s1Page
+            const newSavePath = this.getUniqueFilename(originalFilename, s1Page);
+            
             this.queue.set(imageUrl, newSavePath);
-            addLog(`S1 Exporter: 入队图片， ${imageUrl}, ${altText},${newSavePath}`)
+            addLog(`S1 Exporter: 入队图片， ${imageUrl}, ${altText}, ${newSavePath}`)
             if (this.linkFormat === 'standard') {
                 return `![${altText}](${encodeURI(newSavePath)})`;
             } else {
                 return `![[${newSavePath}]]`;
             }
         }
+        
         async processQueue(updateCallback) {
+            // ... (这个函数不变) ...
             const total = this.queue.size;
             if (total === 0) {
                 updateCallback(0, 0, "没有需要下载的图片。");
@@ -159,25 +168,19 @@
                 i++;
                 updateCallback(i, total, savePath);
                 try {
-                    // ** 关键改动：使用 await 并检查响应 **
                     const response = await chrome.runtime.sendMessage({
                         type: 'downloadImage',
                         url: url,
                         savePath: savePath
                     });
 
-                    // ** 处理 background.js 返回的详细结果 **
                     if (!response || !response.success) {
-                        // 如果 response 为空或 success 为 false，则抛出错误
                         throw new Error(response?.error || '下载任务创建失败 (无详细信息)');
                     }
-                    // 可选：如果需要确认每个文件下载完成（但这会很慢），可以在这里监听 chrome.downloads.onChanged 事件
-                    // 为了速度，我们假设任务创建即开始
-
-                    await new Promise(resolve => setTimeout(resolve, 50)); // 缩短延迟
+                    
+                    await new Promise(resolve => setTimeout(resolve, 50));
 
                 } catch (e) {
-                    // 现在的 e.message 会包含来自 background.js 的更具体的错误
                     addLog(`❌ 图片下载失败: ${url} (目标路径: ${savePath}) - 错误: ${e.message}`, 'red');
                     this.failedDownloads.push({ url, savePath, error: e.message });
                 }
@@ -186,76 +189,6 @@
         }
     }
     
-    // --- 6. Turndown Rules (不变) ---
-    let downloader = new ImageDownloader();
-    turndownService.addRule('s1AttachmentImage', {
-        filter: (node) => (node.nodeName === 'IMG' && (node.hasAttribute('aid') || (node.getAttribute('src')?.endsWith('/none.gif') && (node.hasAttribute('zoomfile') || node.hasAttribute('file'))))),
-        replacement: (content, node) => {
-            let imageUrl = '';
-            const zoomfile = node.getAttribute('zoomfile');
-            const file = node.getAttribute('file');
-            const src = node.getAttribute('src');
-            const aid = node.getAttribute('aid') || '未知ID';
-            if (zoomfile && zoomfile.startsWith('http')) imageUrl = zoomfile;
-            else if (file && file.startsWith('http')) imageUrl = file;
-            else if (src && !src.endsWith('/none.gif') && src.startsWith('http')) imageUrl = src;
-            else if (file && file.startsWith('data/attachment')) imageUrl = `${location.origin}/2b/${file}`;
-            else if (src && src.startsWith('data/attachment')) imageUrl = `${location.origin}/2b/${src}`;
-            let altText = node.getAttribute('alt') || `附件 ${aid}`;
-            if (altText.toLowerCase() === 'attachimg' || altText.trim() === '') altText = `附件 ${aid}`;
-            if (!imageUrl) {
-                 console.warn("[Turndown Rule: s1AttachmentImage] 未能找到附件图片的有效 URL:", node.outerHTML); // 添加日志
-                 return `[附件图片 aid=${aid} 加载失败]`;
-            }
-            // ** 添加日志 **
-            console.log(`[Turndown Rule: s1AttachmentImage] Enqueueing: ${imageUrl}`);
-            return downloader.enqueue(imageUrl, altText);
-        }
-    });
-    turndownService.addRule('externalImage', {
-        filter: (node) => (node.nodeName === 'IMG' && node.getAttribute('src') && node.getAttribute('src').startsWith('http') && !node.hasAttribute('aid') && !node.getAttribute('src').includes('/smiley/')),
-        replacement: (content, node) => {
-            const src = node.getAttribute('src');
-            const alt = node.getAttribute('alt') || 'ext_image';
-            // ** 添加日志 **
-            console.log(`[Turndown Rule: externalImage] Enqueueing: ${src}`);
-            return downloader.enqueue(src, alt);
-        }
-    });
-    turndownService.addRule('s1SmileyObsidian', {
-        filter: (node) => (node.nodeName === 'IMG' && node.hasAttribute('smilieid') && node.getAttribute('src').includes('/smiley/')),
-        replacement: (content, node) => {
-            const src = node.getAttribute('src');
-            const smilieid = node.getAttribute('smilieid');
-            let path = `表情${smilieid || ''}`;
-            const match = src.match(/\/smiley\/(.+)$/);
-            if (match && match[1]) path = match[1];
-            let result = `![[${path}`;
-            if (smilieid) result += `|smilieid=${smilieid}`;
-            result += ']]';
-            return result;
-        }
-    });
-    turndownService.addRule('s1Quote', {
-        filter: (node) => (node.nodeName === 'BLOCKQUOTE' && node.querySelector('div.quote > font')),
-        replacement: (content, node) => {
-            const headerFont = node.querySelector('div.quote > font');
-            let authorAndTime = '用户';
-            if (headerFont) authorAndTime = headerFont.innerText.replace(/\s+/g, ' ').trim();
-            const contentClone = node.cloneNode(true);
-            contentClone.querySelector('div.quote')?.remove();
-            const quoteText = turndownService.turndown(contentClone);
-            return `> **引用 ${authorAndTime}:**\n>\n` + quoteText.split('\n').map(line => `> ${line}`).join('\n') + '\n\n';
-        }
-    });
-    turndownService.addRule('s1SimpleQuote', {
-        filter: (node) => (node.nodeName === 'BLOCKQUOTE' && !node.querySelector('div.quote > font')),
-        replacement: (content) => {
-            const trimmedContent = content.trim();
-            if (trimmedContent.startsWith('本帖最后由') && !trimmedContent.includes('\n')) return `> *${trimmedContent}*\n\n`;
-            return '\n> ' + trimmedContent.replace(/\n/g, '\n> ') + '\n\n';
-        }
-    });
     
     // --- 7. [新] CSP-Safe Templates ---
     // 移除了 JsRender ($.templates)，使用纯 JS 模板字符串来规避 'unsafe-eval'
@@ -319,12 +252,108 @@
     // (入口点已改为消息监听)
 
     // --- 10. Core Export Logic (不变) ---
+    // --- 10. Core Export Logic (重大修改版) ---
     async function mainExport(options) {
         window.s1ExportRunning = true; 
         showStatus('准备中...');
-        downloader = new ImageDownloader();
+        
+        // --- 1. 获取 TID 和初始化 Downloader (功能3) ---
+        globalTid = await getThreadIdFromPage();
+        if (!globalTid) {
+             window.s1ExportRunning = false;
+             throw new Error("无法获取帖子 TID");
+        }
+        
+        let downloader = new ImageDownloader(globalTid); // [修改] 传入 TID
         downloader.setLinkFormat(options.linkFormat);
         downloader.setDownloadEnabled(options.downloadImages);
+
+        // --- 2. [新增] 动态初始化 Turndown (功能1) ---
+        const turndownService = new TurndownService({
+            headingStyle: 'atx',
+            codeBlockStyle: 'fenced',
+            bulletListMarker: '-',
+        });
+
+        turndownService.addRule('s1AttachmentImage', {
+            filter: (node) => (node.nodeName === 'IMG' && (node.hasAttribute('aid') || (node.getAttribute('src')?.endsWith('/none.gif') && (node.hasAttribute('zoomfile') || node.hasAttribute('file'))))),
+            replacement: (content, node) => {
+                let imageUrl = '';
+                const zoomfile = node.getAttribute('zoomfile');
+                const file = node.getAttribute('file');
+                const src = node.getAttribute('src');
+                const aid = node.getAttribute('aid') || '未知ID';
+                if (zoomfile && zoomfile.startsWith('http')) imageUrl = zoomfile;
+                else if (file && file.startsWith('http')) imageUrl = file;
+                else if (src && !src.endsWith('/none.gif') && src.startsWith('http')) imageUrl = src;
+                else if (file && file.startsWith('data/attachment')) imageUrl = `${location.origin}/2b/${file}`;
+                else if (src && src.startsWith('data/attachment')) imageUrl = `${location.origin}/2b/${src}`;
+                let altText = node.getAttribute('alt') || `附件 ${aid}`;
+                if (altText.toLowerCase() === 'attachimg' || altText.trim() === '') altText = `附件 ${aid}`;
+                if (!imageUrl) {
+                     console.warn("[Turndown Rule: s1AttachmentImage] 未能找到附件图片的有效 URL:", node.outerHTML);
+                     return `[附件图片 aid=${aid} 加载失败]`;
+                }
+                console.log(`[Turndown Rule: s1AttachmentImage] Enqueueing: ${imageUrl}`);
+                // [修改] 传入 node
+                return downloader.enqueue(imageUrl, altText, node); 
+            }
+        });
+        turndownService.addRule('externalImage', {
+            filter: (node) => (node.nodeName === 'IMG' && node.getAttribute('src') && node.getAttribute('src').startsWith('http') && !node.hasAttribute('aid') && !node.getAttribute('src').includes('/smiley/')),
+            replacement: (content, node) => {
+                const src = node.getAttribute('src');
+                const alt = node.getAttribute('alt') || 'ext_image';
+                console.log(`[Turndown Rule: externalImage] Enqueueing: ${src}`);
+                // [修改] 传入 node
+                return downloader.enqueue(src, alt, node);
+            }
+        });
+        turndownService.addRule('s1SmileyObsidian', { // [修改] 规则名
+            filter: (node) => (node.nodeName === 'IMG' && node.hasAttribute('smilieid') && node.getAttribute('src').includes('/smiley/')),
+            replacement: (content, node) => {
+                const src = node.getAttribute('src');
+                const smilieid = node.getAttribute('smilieid');
+                
+                // [修改] 根据 options.emoteFormat 动态处理 (功能1)
+                if (options.emoteFormat === 'standard') {
+                    return `![${smilieid || 'smiley'}](${src})`;
+                }
+
+                // 默认 (obsidian)
+                let path = `表情${smilieid || ''}`;
+                const match = src.match(/\/smiley\/(.+)$/);
+                if (match && match[1]) path = match[1];
+                let result = `![[${path}`;
+                if (smilieid) result += `|smilieid=${smilieid}`;
+                result += ']]';
+                return result;
+            }
+        });
+        turndownService.addRule('s1Quote', {
+            filter: (node) => (node.nodeName === 'BLOCKQUOTE' && node.querySelector('div.quote > font')),
+            replacement: (content, node) => {
+                const headerFont = node.querySelector('div.quote > font');
+                let authorAndTime = '用户';
+                if (headerFont) authorAndTime = headerFont.innerText.replace(/\s+/g, ' ').trim();
+                const contentClone = node.cloneNode(true);
+                contentClone.querySelector('div.quote')?.remove();
+                // [修改] 动态调用
+                const quoteText = turndownService.turndown(contentClone); 
+                return `> **引用 ${authorAndTime}:**\n>\n` + quoteText.split('\n').map(line => `> ${line}`).join('\n') + '\n\n';
+            }
+        });
+        turndownService.addRule('s1SimpleQuote', {
+            filter: (node) => (node.nodeName === 'BLOCKQUOTE' && !node.querySelector('div.quote > font')),
+            replacement: (content) => {
+                const trimmedContent = content.trim();
+                if (trimmedContent.startsWith('本帖最后由') && !trimmedContent.includes('\n')) return `> *${trimmedContent}*\n\n`;
+                return '\n> ' + trimmedContent.replace(/\n/g, '\n> ') + '\n\n';
+            }
+        });
+        // --- 2. Turndown 初始化结束 ---
+
+
         try {
             const data = await chrome.storage.local.get(SID_STORAGE_KEY);
             appSid = data[SID_STORAGE_KEY] || null;
@@ -346,18 +375,64 @@
             const title = titleEl ? titleEl.innerText.trim() : '未知标题';
             const url = urlEl ? urlEl.href : location.href;
             const section = sectionEl ? sectionEl.innerText.trim() : '未知版块';
-            globalTid = await getThreadIdFromPage();
-            if (!globalTid) throw new Error("无法获取帖子 TID");
+
             showStatus('加载页面...');
-            const { allPostElements, actualStartPage, actualEndPage } = await loadAllPagesAndUnblock(options.startFloor, options.endFloor, options.postsPerPage); // <--- 修改
             
-            const pageRangeInfo = actualStartPage !== null ? `(实际加载: ${actualStartPage}-${actualEndPage})` : "";
+            // [修改] 优化：不再计算分页加载，只传递楼层范围
+            const { allPostElements, actualStartPage, actualEndPage } = await loadAllPagesAndUnblock(options);
+            
+            const pageRangeInfo = actualStartPage !== null ? `(S1页: ${actualStartPage}-${actualEndPage})` : "";
             showStatus(`正在解析 ${pageRangeInfo}...`);
-            const markdown = parseAllPosts(title, url, section, allPostElements, options.startFloor, options.endFloor);
+            
+            // [修改] parseAllPosts 现在返回对象
+            const { header, posts } = parseAllPosts(
+                title, 
+                url, 
+                section, 
+                allPostElements, 
+                options.startFloor, 
+                options.endFloor,
+                turndownService // [新增] 传入
+            );
+            
             await downloader.processQueue((current, total, filename) => {
                  showStatus(`下载图片 ${current}/${total}...`);
             });
-            downloadMarkdown(title, markdown);
+
+            // --- 3. [新增] Markdown 分页逻辑 (功能2) ---
+            const { postsPerFile, startFile, endFile } = options;
+            
+            if (postsPerFile === null || postsPerFile <= 0) {
+                // [原逻辑] 导出单个文件
+                showStatus('正在生成 Markdown...');
+                const fullMd = header + posts.map(p => {
+                    return `\n\n---\n\n## ${p.floor} | ${p.author} | ${p.time}\n\n${p.mdContent.trim()}${p.rateContent}`;
+                }).join('');
+                downloadMarkdown(title, fullMd);
+                
+            } else {
+                // [新逻辑] 分页导出
+                const chunks = chunkArray(posts, postsPerFile);
+                const fileStart = startFile || 1;
+                const fileEnd = endFile || chunks.length;
+                
+                showStatus(`正在生成 ${fileStart}-${fileEnd} / ${chunks.length} 个文件...`);
+                
+                for (let i = fileStart - 1; i < fileEnd && i < chunks.length; i++) {
+                    const filePageIndex = i + 1;
+                    const chunk = chunks[i];
+                    
+                    const mdString = header + chunk.map(p => {
+                         return `\n\n---\n\n## ${p.floor} | ${p.author} | ${p.time}\n\n${p.mdContent.trim()}${p.rateContent}`;
+                    }).join('');
+                    
+                    downloadMarkdown(`${title} - Page ${filePageIndex}`, mdString);
+                    await new Promise(resolve => setTimeout(resolve, 100)); // 避免下载窗口爆炸
+                }
+            }
+            
+            // --- 3. 分页逻辑结束 ---
+
             if(downloader.failedDownloads.length > 0) {
                 showStatus(`导出完成，${downloader.failedDownloads.length}张图片失败！`, true);
                 alert(`导出完成，但有 ${downloader.failedDownloads.length} 张图片下载失败，请检查控制台（F12）获取详情。`);
@@ -380,25 +455,28 @@
         }
     }
 
-    // --- 11. Page Loading (不变) ---
-    async function loadAllPagesAndUnblock(startFloor, endFloor, postsPerPage) {
+    // --- 11. Page Loading (修改版：移除buffer，增加page-tag) ---
+    async function loadAllPagesAndUnblock(options) { // [修改] 传入 options
+        const { startFloor, endFloor, postsPerPage } = options;
         const allCollectedPosts = [];
-        let actualStartPage = null; // 记录实际加载的起始页
-        let actualEndPage = null;   // 记录实际加载的结束页
+        let actualStartPage = null;
+        let actualEndPage = null;
 
+        const currentPageEl = document.querySelector('#pgt .pg strong');
+        const totalPagesEl = document.querySelector('#pgt .pg span[title^="共"]');
+        
         let totalPages = 1;
         let currentPage = 1;
 
-        const currentPageEl = document.querySelector('#pgt .pg strong');
-        if (currentPageEl) {
-            currentPage = parseInt(currentPageEl.innerText, 10);
-        }
-
-        const totalPagesEl = document.querySelector('#pgt .pg span[title^="共"]');
         if (totalPagesEl) {
              const totalPagesMatch = totalPagesEl.innerText.match(/\/ (\d+) 页/);
              if (totalPagesMatch) totalPages = parseInt(totalPagesMatch[1], 10);
         }
+        
+        if (currentPageEl) {
+            currentPage = parseInt(currentPageEl.innerText, 10);
+        }
+        
         const postList = document.getElementById('postlist');
         if (!postList) throw new Error("无法找到 #postlist 元素");
         console.log(`S1 Exporter: 总 ${totalPages} 页, 当前 ${currentPage} 页. 请求楼层 ${startFloor ?? 'N/A'}-${endFloor ?? 'N/A'}, 每页 ${postsPerPage}.`);
@@ -408,46 +486,57 @@
         let targetEndPage = totalPages;
 
         if (startFloor !== null || endFloor !== null) {
-            // 如果指定了楼层，则计算范围
             if (startFloor !== null) {
-                targetStartPage = Math.max(1, Math.floor((startFloor - 1) / postsPerPage) + 1); // -1 是因为楼层从1开始
+                targetStartPage = Math.max(1, Math.floor((startFloor - 1) / postsPerPage) + 1);
             }
             if (endFloor !== null) {
                 targetEndPage = Math.min(totalPages, Math.floor((endFloor - 1) / postsPerPage) + 1);
             }
 
-            // 添加左右各一页的余量
-            targetStartPage = Math.max(1, targetStartPage - 1);
-            targetEndPage = Math.min(totalPages, targetEndPage + 1);
+            // [修改] 移除多余页面加载 (功能2)
+            // targetStartPage = Math.max(1, targetStartPage - 1);
+            // targetEndPage = Math.min(totalPages, targetEndPage + 1);
 
             console.log(`[Optimize] Calculated target page range: ${targetStartPage} - ${targetEndPage}`);
         } else {
             console.log(`[Optimize] No floor range specified, loading all pages: 1 - ${totalPages}`);
         }
         
-        // 记录实际加载范围的起始
         actualStartPage = targetStartPage;
         actualEndPage = targetEndPage;
         
         for (let i = targetStartPage; i <= targetEndPage; i++) {
             actualEndPage = i; 
             if (i === currentPage) {
-                 // --- 处理当前（第一）页 ---
                  showStatus(`处理 ${i}/${totalPages}...`);
                  console.log(`处理当前页 (${i})`);
                  const originalCurrentPosts = Array.from(postList.querySelectorAll(':scope > div[id^="post_"]'));
-                 await unblockPosts(originalCurrentPosts, i); // 解锁原始 DOM
+                 
+                 // [新增] 标记 S1 页码 (功能3)
+                 originalCurrentPosts.forEach(post => post.dataset.s1Page = i);
+                 
+                 await unblockPosts(originalCurrentPosts, i); 
+
+                 originalCurrentPosts.forEach(post => {
+                    post.querySelectorAll('img').forEach(img => img.dataset.s1Page = i);
+                 });
                  
                  console.log(`重新解析当前页 (${i})...`);
                  const firstPageHtml = postList.innerHTML;
                  const firstPageDoc = new DOMParser().parseFromString(`<body><div id="postlist">${firstPageHtml}</div></body>`, 'text/html');
                  const reparsedCurrentPosts = Array.from(firstPageDoc.querySelectorAll('#postlist > div[id^="post_"]'));
                  
+                 // [新增] 再次标记 S1 页码 (功能3)
+                 reparsedCurrentPosts.forEach(post => {
+                    post.dataset.s1Page = i;
+                    // [新增] 再次将页码传播到所有 img 标签
+                    post.querySelectorAll('img').forEach(img => img.dataset.s1Page = i);
+                 });
+
                  allCollectedPosts.push(...reparsedCurrentPosts);
                  console.log(`当前页 (${i}) 处理完成，添加 ${reparsedCurrentPosts.length} 帖子。`);
 
              } else {
-                 // --- 处理非当前页（需要 fetch） ---
                  showStatus(`加载 ${i}/${totalPages}...`);
                  console.log(`加载目标页 (${i})`);
                  const pageUrl = `${location.protocol}//${location.host}/2b/thread-${globalTid}-${i}-1.html`;
@@ -456,22 +545,27 @@
                  catch (fetchError) { console.error(`Page ${i}: 获取 HTML 失败!`, fetchError); continue; }
 
                  const doc = new DOMParser().parseFromString(htmlText, 'text/html');
-                 const newPostsHtmlStrict = doc.querySelectorAll('#postlist > div[id^="post_"]');
-                 const newPostsHtmlDescendant = doc.querySelectorAll('#postlist div[id^="post_"]');
-                 const postsToParse = (newPostsHtmlStrict.length > 0) ? newPostsHtmlStrict : newPostsHtmlDescendant;
+                 const postsToParse = doc.querySelectorAll('#postlist > div[id^="post_"]');
 
                  const newlyAddedPosts = [];
-                 postsToParse.forEach(postNode => newlyAddedPosts.push(postNode));
+                 postsToParse.forEach(postNode => {
+                    // [新增] 标记 S1 页码 (功能3)
+                    postNode.dataset.s1Page = i;
+                    newlyAddedPosts.push(postNode);
+                 });
 
                  if (newlyAddedPosts.length === 0) {
-                      const onlyIdPosts = doc.querySelectorAll('div[id^="post_"]');
-                      if(onlyIdPosts.length > 0) console.warn(`Page ${i}: 找到了帖子，但不在 #postlist 下！`);
-                      else console.warn(`Page ${i}: 未找到任何帖子元素！跳过。`);
+                      console.warn(`[V3.9] Page ${i}: 未找到任何帖子元素！跳过。`);
                       continue;
                  }
 
                  showStatus(`解锁 ${i}/${totalPages}...`);
-                 await unblockPosts(newlyAddedPosts, i); // 解锁从 doc 解析出的节点
+                 await unblockPosts(newlyAddedPosts, i);
+
+                 newlyAddedPosts.forEach(postNode => {
+                    postNode.querySelectorAll('img').forEach(img => img.dataset.s1Page = i);
+                 });
+
                  allCollectedPosts.push(...newlyAddedPosts);
                  console.log(`目标页 (${i}) 处理完成，添加 ${newlyAddedPosts.length} 帖子。`);
              }
@@ -631,25 +725,28 @@
         const match = floorStr.match(/^(\d+)/);
         return match ? parseInt(match[1], 10) : null;
     }
-    // --- 14. Parsing and Downloading (不变) ---
-    function parseAllPosts(title, url, section, allPostElements, startFloor, endFloor) {
-        let md = `# ${title}\n\n**版块:** ${section}\n**原帖:** <${url}>\n\n`;
+    // --- 14. Parsing and Downloading (修改版：返回数组) ---
+    function parseAllPosts(title, url, section, allPostElements, startFloor, endFloor, turndownService) {
+        // [修改] 只生成 Header
+        let header = `# ${title}\n\n**版块:** ${section}\n**原帖:** <${url}>\n\n`;
         const posts = allPostElements;
-        let includedPostCount = 0; // 记录实际包含的帖子数
+        let includedPostCount = 0;
         
-        addLog(`[parseAllPosts] 函数开始执行，选择器找到了 ${posts.length} 个帖子。`); // 输出到 console
+        const parsedPosts = []; // [修改] 结果数组
+
+        addLog(`[parseAllPosts] 函数开始执行，选择器找到了 ${posts.length} 个帖子。`);
         if (posts.length === 0) {
             console.error("[parseAllPosts] 错误：选择器没有找到任何帖子！");
             addLog("[parseAllPosts] 错误：选择器没有找到任何帖子！", 'red');
-            return "[错误：未能解析任何帖子内容]";
+            return { header: "[错误：未能解析任何帖子内容]", posts: [] }; // [修改]
         }
+        
         console.log(`S1 Exporter: 找到 ${posts.length} 个帖子进行最终解析.`);
         posts.forEach((post, index) => {
             const floorElement = post.querySelector('.pi strong a[id^="postnum"]');
             const floorStr = floorElement ? floorElement.innerText.trim() : 'N/A';
             const floorNum = parseFloorNumber(floorStr);
 
-            // --- ** 调试日志 ** ---
             console.log(`[Debug] Post Index ${index}, Element ID ${post.id}, Floor Str: "${floorStr}", Parsed Floor Num: ${floorNum}`);
 
             // --- 楼层过滤逻辑 ---
@@ -664,9 +761,6 @@
                     skip = true;
                 }
             } else {
-                // 对于无法解析楼层的帖子，我们默认 *包含* 它，除非显式设置了范围
-                // 如果设置了范围，但无法解析楼层，通常也跳过？（或者可以改为包含？）
-                // 目前逻辑：如果设置了范围，但无法解析，则跳过
                  if (startFloor !== null || endFloor !== null) {
                       console.warn(`[Filter] Skipping post ${post.id} because floor "${floorStr}" could not be parsed and a range was specified.`);
                       skip = true;
@@ -674,10 +768,7 @@
                       console.log(`[Filter] Including post ${post.id} with unparsed floor "${floorStr}" because no range specified.`);
                  }
             }
-
-            if (skip) {
-                return; // 跳过当前 forEach 迭代
-            }
+            if (skip) return;
             // --- 过滤结束 ---
 
             includedPostCount++;
@@ -688,37 +779,39 @@
             if (floor === '楼主') floor = '1# (楼主)';
             else if (floor && floor.includes('#')) floor = floor.replace(' #', '#');
             const contentEl = post.querySelector('td[id^="postmessage_"]');
-            if (!contentEl) {
-                md += `---\n\n## ${floor} | ${author} | ${time}\n\n[内容无法加载或已被删除]\n\n`;
-                return; 
-            }
-            const contentClone = contentEl.cloneNode(true);
-            contentClone.querySelector('.cronclosethread_getbox')?.remove();
-            const pstatus = contentClone.querySelector('i.pstatus');
-            if (pstatus) {
-                const block = document.createElement('blockquote');
-                block.innerText = pstatus.innerText.trim();
-                pstatus.parentNode.replaceChild(block, pstatus);
-            }
-            const links = contentClone.querySelectorAll('a[href]');
-            const baseUrl = `${location.origin}/2b/`;
-            links.forEach(link => {
-                let href = link.getAttribute('href');
-                if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('#') && !href.startsWith('javascript:')) {
-                    try { link.setAttribute('href', new URL(href, baseUrl).href); } 
-                    catch (e) { console.warn(`无法将相对链接转换为绝对链接: ${href}`, e); }
+            
+            let markdownContent = '[内容无法加载或已被删除]';
+            
+            if (contentEl) {
+                const contentClone = contentEl.cloneNode(true);
+                contentClone.querySelector('.cronclosethread_getbox')?.remove();
+                const pstatus = contentClone.querySelector('i.pstatus');
+                if (pstatus) {
+                    const block = document.createElement('blockquote');
+                    block.innerText = pstatus.innerText.trim();
+                    pstatus.parentNode.replaceChild(block, pstatus);
                 }
-            });
-            console.log(`[parseAllPosts] Running Turndown for post ${post.id}...`); // 添加日志
-            let markdownContent = turndownService.turndown(contentClone);
-            md += `---\n\n## ${floor} | ${author} | ${time}\n\n${markdownContent.trim()}\n\n`;
-            // --- ** 新增：解析评分部分 ** ---
-            const rateLogElement = post.querySelector(`dl[id^="ratelog_"]`); // 查找评分 dl 元素
+                const links = contentClone.querySelectorAll('a[href]');
+                const baseUrl = `${location.origin}/2b/`;
+                links.forEach(link => {
+                    let href = link.getAttribute('href');
+                    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('#') && !href.startsWith('javascript:')) {
+                        try { link.setAttribute('href', new URL(href, baseUrl).href); } 
+                        catch (e) { console.warn(`无法将相对链接转换为绝对链接: ${href}`, e); }
+                    }
+                });
+                console.log(`[parseAllPosts] Running Turndown for post ${post.id}...`);
+                markdownContent = turndownService.turndown(contentClone); // [修改] 使用传入的 service
+            }
+
+            // --- ** 解析评分部分 ** ---
+            let rateContent = '\n\n'; // [修改]
+            const rateLogElement = post.querySelector(`dl[id^="ratelog_"]`);
             if (rateLogElement) {
                 const rateTable = rateLogElement.querySelector('table.ratl');
                 if (rateTable) {
-                    const rows = rateTable.querySelectorAll('tbody.ratl_l tr'); // 获取评分记录行
-                    const header = rateTable.querySelector('tbody tr'); // 获取表头信息
+                    const rows = rateTable.querySelectorAll('tbody.ratl_l tr');
+                    const header = rateTable.querySelector('tbody tr');
                     let summary = '';
                     if (header) {
                          const participants = header.querySelector('th:nth-child(1) span')?.innerText || '?';
@@ -727,7 +820,7 @@
                     }
 
                     if (rows.length > 0) {
-                        md += `> **评分**${summary}:\n`; // 使用引用块来表示评分
+                        rateContent += `> **评分**${summary}:\n`; // [修改]
                         rows.forEach(row => {
                             const userLink = row.querySelector('td:nth-child(1) a:last-of-type');
                             const user = userLink ? userLink.innerText.trim() : '匿名';
@@ -737,15 +830,26 @@
                             if (/^\d+\./.test(user)) {
                                 escapedUser = user.replace('.', '\\.'); 
                             }
-                            md += `> - ${escapedUser} \`${score}\` ${reason}\n`;
+                            rateContent += `> - ${escapedUser} \`${score}\` ${reason}\n`; // [修改]
                         });
-                        md += `>\n\n`; // 引用块结束后的空行
+                        rateContent += `>\n\n`; // [修改]
                     }
                 }
             }
             // --- ** 评分解析结束 ** ---
+            
+            // [修改] 添加到数组
+            parsedPosts.push({
+                floor: floor,
+                author: author,
+                time: time,
+                mdContent: markdownContent,
+                rateContent: rateContent
+            });
         });
-        return md;
+        
+        // [修改] 返回对象
+        return { header: header, posts: parsedPosts };
     }
 
     function downloadMarkdown(title, text) {
@@ -785,6 +889,16 @@
     
     function addLog(message, color = 'black') {
         console.log(message);
+    }
+
+    // --- [新增] 数组分块辅助函数 (功能2) ---
+    function chunkArray(array, chunkSize) {
+        if (chunkSize <= 0) return [array];
+        const chunks = [];
+        for (let i = 0; i < array.length; i += chunkSize) {
+            chunks.push(array.slice(i, i + chunkSize));
+        }
+        return chunks;
     }
 
     // --- 16. 消息监听器 (不变) ---

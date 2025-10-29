@@ -46,26 +46,48 @@ document.addEventListener('DOMContentLoaded', () => {
     const postsPerPageStr = postsPerPageInput.value;
     const downloadImages = downloadImagesCheckbox.checked;
     const linkFormat = document.querySelector('input[name="linkFormat"]:checked').value;
+    
+    // [新增] 读取新值
+    const emoteFormat = document.querySelector('input[name="emoteFormat"]:checked').value;
+    const postsPerFileStr = document.getElementById('postsPerFile').value;
+    const startFileStr = document.getElementById('startFile').value;
+    const endFileStr = document.getElementById('endFile').value;
 
     // 转换为数字，留空则为 null
     let startFloor = startFloorStr ? parseInt(startFloorStr, 10) : null;
     let endFloor = endFloorStr ? parseInt(endFloorStr, 10) : null;
-    let postsPerPage = postsPerPageStr ? parseInt(postsPerPageStr, 10) : 40; // ** 新增 **
+    let postsPerPage = postsPerPageStr ? parseInt(postsPerPageStr, 10) : 40;
+    
+    // [新增] 转换新值
+    let postsPerFile = postsPerFileStr ? parseInt(postsPerFileStr, 10) : null;
+    let startFile = startFileStr ? parseInt(startFileStr, 10) : null;
+    let endFile = endFileStr ? parseInt(endFileStr, 10) : null;
+
 
     // 基本验证
-    if (startFloor !== null && isNaN(startFloor)) startFloor = null; // 非数字视为无效
+    if (startFloor !== null && isNaN(startFloor)) startFloor = null;
     if (endFloor !== null && isNaN(endFloor)) endFloor = null;
-    if (startFloor !== null && startFloor < 1) startFloor = 1; // 最小楼层为 1
-    if (endFloor !== null && endFloor < 1) endFloor = null; // 结束楼层小于 1 无意义
+    if (startFloor !== null && startFloor < 1) startFloor = 1;
+    if (endFloor !== null && endFloor < 1) endFloor = null;
     if (isNaN(postsPerPage) || postsPerPage < 1) {
-        postsPerPage = 40; // ** 新增：无效则用默认值 **
+        postsPerPage = 40;
         console.warn("Invalid postsPerPage, defaulting to 40.");
     }
+    // [新增] 验证新值
+    if (postsPerFile !== null && (isNaN(postsPerFile) || postsPerFile < 1)) postsPerFile = null;
+    if (startFile !== null && (isNaN(startFile) || startFile < 1)) startFile = null;
+    if (endFile !== null && (isNaN(endFile) || endFile < 1)) endFile = null;
+
 
     // 检查范围是否有效
     if (startFloor !== null && endFloor !== null && startFloor > endFloor) {
       statusEl.textContent = '错误：起始楼层不能大于结束楼层！';
-      return; // 阻止发送消息
+      return; 
+    }
+    // [新增] 检查分页范围
+    if (startFile !== null && endFile !== null && startFile > endFile) {
+      statusEl.textContent = '错误：起始文件页不能大于结束文件页！';
+      return;
     }
 
     // --- ** 准备发送的消息 ** ---
@@ -74,7 +96,12 @@ document.addEventListener('DOMContentLoaded', () => {
       endFloor: endFloor,
       postsPerPage: postsPerPage,
       downloadImages: downloadImages,
-      linkFormat: linkFormat
+      linkFormat: linkFormat,
+      // [新增]
+      emoteFormat: emoteFormat,
+      postsPerFile: postsPerFile,
+      startFile: startFile,
+      endFile: endFile
     };
 
     console.log("Sending export options:", options); // 调试日志
