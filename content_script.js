@@ -251,8 +251,7 @@
     // --- 9. UI Setup (已删除) ---
     // (入口点已改为消息监听)
 
-    // --- 10. Core Export Logic (不变) ---
-    // --- 10. Core Export Logic (重大修改版) ---
+// --- 10. Core Export Logic (重大修改版 V2) ---
     async function mainExport(options) {
         window.s1ExportRunning = true; 
         showStatus('准备中...');
@@ -264,11 +263,11 @@
              throw new Error("无法获取帖子 TID");
         }
         
-        let downloader = new ImageDownloader(globalTid); // [修改] 传入 TID
+        let downloader = new ImageDownloader(globalTid); // [修复] 声明 downloader
         downloader.setLinkFormat(options.linkFormat);
         downloader.setDownloadEnabled(options.downloadImages);
 
-        // --- 2. [新增] 动态初始化 Turndown (功能1) ---
+        // --- 2. 动态初始化 Turndown (功能1) ---
         const turndownService = new TurndownService({
             headingStyle: 'atx',
             codeBlockStyle: 'fenced',
@@ -295,7 +294,6 @@
                      return `[附件图片 aid=${aid} 加载失败]`;
                 }
                 console.log(`[Turndown Rule: s1AttachmentImage] Enqueueing: ${imageUrl}`);
-                // [修改] 传入 node
                 return downloader.enqueue(imageUrl, altText, node); 
             }
         });
@@ -305,22 +303,17 @@
                 const src = node.getAttribute('src');
                 const alt = node.getAttribute('alt') || 'ext_image';
                 console.log(`[Turndown Rule: externalImage] Enqueueing: ${src}`);
-                // [修改] 传入 node
                 return downloader.enqueue(src, alt, node);
             }
         });
-        turndownService.addRule('s1SmileyObsidian', { // [修改] 规则名
+        turndownService.addRule('s1SmileyObsidian', { 
             filter: (node) => (node.nodeName === 'IMG' && node.hasAttribute('smilieid') && node.getAttribute('src').includes('/smiley/')),
             replacement: (content, node) => {
                 const src = node.getAttribute('src');
                 const smilieid = node.getAttribute('smilieid');
-                
-                // [修改] 根据 options.emoteFormat 动态处理 (功能1)
                 if (options.emoteFormat === 'standard') {
                     return `![${smilieid || 'smiley'}](${src})`;
                 }
-
-                // 默认 (obsidian)
                 let path = `表情${smilieid || ''}`;
                 const match = src.match(/\/smiley\/(.+)$/);
                 if (match && match[1]) path = match[1];
@@ -338,7 +331,6 @@
                 if (headerFont) authorAndTime = headerFont.innerText.replace(/\s+/g, ' ').trim();
                 const contentClone = node.cloneNode(true);
                 contentClone.querySelector('div.quote')?.remove();
-                // [修改] 动态调用
                 const quoteText = turndownService.turndown(contentClone); 
                 return `> **引用 ${authorAndTime}:**\n>\n` + quoteText.split('\n').map(line => `> ${line}`).join('\n') + '\n\n';
             }
@@ -351,10 +343,9 @@
                 return '\n> ' + trimmedContent.replace(/\n/g, '\n> ') + '\n\n';
             }
         });
-        // --- 2. Turndown 初始化结束 ---
-
 
         try {
+            // ... (登录逻辑) ...
             const data = await chrome.storage.local.get(SID_STORAGE_KEY);
             appSid = data[SID_STORAGE_KEY] || null;
             if (!appSid) {
@@ -368,6 +359,8 @@
             } else {
                 console.log("S1 Exporter: 使用已存储的 App SID.");
             }
+            
+            // ... (获取 title, url, section) ...
             const titleEl = document.getElementById('thread_subject');
             const urlEl = document.querySelector('link[rel="canonical"]');
             const sectionLinks = document.querySelectorAll('#pt .z a[href^="forum-"]');
@@ -376,31 +369,96 @@
             const url = urlEl ? urlEl.href : location.href;
             const section = sectionEl ? sectionEl.innerText.trim() : '未知版块';
 
+
+            // --- 3. [修改 V3] 计算有效的楼层范围 (Bug 修复) ---
+            const { postsPerFile, startFile, endFile } = options;
+
+            // 步骤 1: 确定 "基础范围"
+            let baseStartFloor = options.startFloor || 1;
+            let baseEndFloor = options.endFloor || null; // 确保是 null
+
+            // 步骤 2: 确定 "分页范围" (相对于基础范围)
+            let effectiveStartFloor = baseStartFloor;
+            let effectiveEndFloor = baseEndFloor;
+
+            if (postsPerFile) {
+                // 如果设置了MD分页，它将 *约束* 基础范围
+                const mdStartPage = startFile || 1;
+                const mdEndPage = endFile || null; // 确保是 null
+
+                // 步骤 2a: 计算分页的 "起始" 楼层
+                // 这是相对于 baseStartFloor 的
+                // 例子: 基础 51, 第 2 页, 每页 100 -> 51 + (2-1)*100 = 151 楼
+                effectiveStartFloor = baseStartFloor + (mdStartPage - 1) * postsPerFile;
+
+                // 步骤 2b: 计算分页的 "结束" 楼层
+                let pagingEndFloor = null;
+                if (mdEndPage) {
+                    // 如果指定了结束页
+                    const totalPagesToTake = mdEndPage - mdStartPage + 1;
+                    if (totalPagesToTake > 0) {
+                        const totalPostsToTake = totalPagesToTake * postsPerFile;
+                        // 例子: 起始 51, 拿 1 页 (1-1), 100个 -> 51 + 100 - 1 = 150 楼
+                        pagingEndFloor = effectiveStartFloor + totalPostsToTake - 1;
+                    }
+                }
+                // 如果 mdEndPage 未指定 (null)，则 pagingEndFloor 保持 null (意为 "到基础范围的末尾")
+
+                // 步骤 2c: 将 "基础结束楼层" 和 "分页结束楼层" 合并
+                // 我们必须取两者中 *较小* (更严格) 的那个
+                if (baseEndFloor !== null && pagingEndFloor !== null) {
+                    effectiveEndFloor = Math.min(baseEndFloor, pagingEndFloor);
+                } else {
+                    effectiveEndFloor = baseEndFloor || pagingEndFloor; // 使用任何一个非null的值
+                }
+            }
+            
+            // 步骤 3: 最终安全检查
+            // "起始楼层" 也不能超过 "基础结束楼层" (如果设置了)
+            if (baseEndFloor !== null && effectiveStartFloor > baseEndFloor) {
+                // 这种情况是无效的，例如请求 1-100 楼，但从第 2 页(101楼)开始
+                console.warn(`[MainExport] 计算出的起始楼层 (${effectiveStartFloor}) 大于结束楼层 (${baseEndFloor}). 导出将为空.`);
+                // 将范围设为无效，这样就不会加载任何内容
+                effectiveStartFloor = baseEndFloor + 1; 
+            }
+            
+            console.log(`[MainExport] 选项:`, options);
+            console.log(`[MainExport] 计算出的有效范围: Floors ${effectiveStartFloor || '1'} to ${effectiveEndFloor || 'End'}`);
+            // --- 3. 计算结束 ---
+
+
             showStatus('加载页面...');
             
-            // [修改] 优化：不再计算分页加载，只传递楼层范围
-            const { allPostElements, actualStartPage, actualEndPage } = await loadAllPagesAndUnblock(options);
+            // --- 4. [修改] 传递有效范围给加载器 ---
+            const { allPostElements, actualStartPage, actualEndPage } = await loadAllPagesAndUnblock(
+                options.postsPerPage, // S1的每页帖子数
+                effectiveStartFloor,  // 我们刚计算出的有效起始楼层
+                effectiveEndFloor     // 我们刚计算出的有效结束楼层
+            );
             
             const pageRangeInfo = actualStartPage !== null ? `(S1页: ${actualStartPage}-${actualEndPage})` : "";
             showStatus(`正在解析 ${pageRangeInfo}...`);
             
-            // [修改] parseAllPosts 现在返回对象
+            // --- 5. [修改] 传递有效范围给解析器 ---
+            // (parseAllPosts 内部的楼层过滤现在是第二重保险，确保只解析我们想要的)
             const { header, posts } = parseAllPosts(
                 title, 
                 url, 
                 section, 
                 allPostElements, 
-                options.startFloor, 
-                options.endFloor,
-                turndownService // [新增] 传入
+                effectiveStartFloor, // 传递有效范围
+                effectiveEndFloor,  // 传递有效范围
+                turndownService
             );
             
+            // --- 6. [Bug 修复] 下载队列现在是正确的 ---
+            // 因为 `posts` 数组只包含有效范围内的帖子，
+            // `downloader` 队列也只包含这些帖子里的图片。
             await downloader.processQueue((current, total, filename) => {
                  showStatus(`下载图片 ${current}/${total}...`);
             });
 
-            // --- 3. [新增] Markdown 分页逻辑 (功能2) ---
-            const { postsPerFile, startFile, endFile } = options;
+            // --- 7. [修改] Markdown 分页逻辑 (Bug 修复) ---
             
             if (postsPerFile === null || postsPerFile <= 0) {
                 // [原逻辑] 导出单个文件
@@ -413,13 +471,16 @@
             } else {
                 // [新逻辑] 分页导出
                 const chunks = chunkArray(posts, postsPerFile);
-                const fileStart = startFile || 1;
-                const fileEnd = endFile || chunks.length;
+                // `posts` 数组现在只包含我们获取的范围 (例如 101-200楼)
+                // `chunks` 可能是 `[ [101-200楼的帖子] ]`
                 
-                showStatus(`正在生成 ${fileStart}-${fileEnd} / ${chunks.length} 个文件...`);
+                // 我们需要文件的 "基础页码"
+                const baseFileNumber = options.startFile || 1; 
+
+                showStatus(`正在生成 ${chunks.length} 个文件...`);
                 
-                for (let i = fileStart - 1; i < fileEnd && i < chunks.length; i++) {
-                    const filePageIndex = i + 1;
+                for (let i = 0; i < chunks.length; i++) {
+                    const filePageIndex = baseFileNumber + i;
                     const chunk = chunks[i];
                     
                     const mdString = header + chunk.map(p => {
@@ -427,12 +488,12 @@
                     }).join('');
                     
                     downloadMarkdown(`${title} - Page ${filePageIndex}`, mdString);
-                    await new Promise(resolve => setTimeout(resolve, 100)); // 避免下载窗口爆炸
+                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
             }
-            
-            // --- 3. 分页逻辑结束 ---
+            // --- 7. 分页逻辑结束 ---
 
+            // ... (结束状态显示) ...
             if(downloader.failedDownloads.length > 0) {
                 showStatus(`导出完成，${downloader.failedDownloads.length}张图片失败！`, true);
                 alert(`导出完成，但有 ${downloader.failedDownloads.length} 张图片下载失败，请检查控制台（F12）获取详情。`);
@@ -443,6 +504,7 @@
                 setTimeout(hideStatus, 3000); 
             }
         } catch (e) {
+            // ... (错误处理) ...
             console.error('S1 Markdown 导出失败:', e);
             showStatus(`导出失败: ${e.message}`, true);
             if (e.message && (e.message.includes("登录失效") || e.message.includes("LOGIN_INVALID"))) {
@@ -455,9 +517,8 @@
         }
     }
 
-    // --- 11. Page Loading (修改版：移除buffer，增加page-tag) ---
-    async function loadAllPagesAndUnblock(options) { // [修改] 传入 options
-        const { startFloor, endFloor, postsPerPage } = options;
+// --- 11. Page Loading (修改版 V2：使用有效范围) ---
+    async function loadAllPagesAndUnblock(postsPerPage, startFloor, endFloor) { // [修改] 签名
         const allCollectedPosts = [];
         let actualStartPage = null;
         let actualEndPage = null;
@@ -479,12 +540,15 @@
         
         const postList = document.getElementById('postlist');
         if (!postList) throw new Error("无法找到 #postlist 元素");
-        console.log(`S1 Exporter: 总 ${totalPages} 页, 当前 ${currentPage} 页. 请求楼层 ${startFloor ?? 'N/A'}-${endFloor ?? 'N/A'}, 每页 ${postsPerPage}.`);
+        
+        // [修改] 使用传入的参数
+        console.log(`S1 Exporter: 总 ${totalPages} 页, 当前 ${currentPage} 页. 请求楼层 ${startFloor ?? '1'}-${endFloor ?? 'End'}, 每页 ${postsPerPage}.`);
 
         // --- ** 计算目标页面范围 ** ---
         let targetStartPage = 1;
         let targetEndPage = totalPages;
 
+        // [修改] 根据我们传入的有效楼层范围来计算 S1 页面
         if (startFloor !== null || endFloor !== null) {
             if (startFloor !== null) {
                 targetStartPage = Math.max(1, Math.floor((startFloor - 1) / postsPerPage) + 1);
@@ -492,11 +556,7 @@
             if (endFloor !== null) {
                 targetEndPage = Math.min(totalPages, Math.floor((endFloor - 1) / postsPerPage) + 1);
             }
-
-            // [修改] 移除多余页面加载 (功能2)
-            // targetStartPage = Math.max(1, targetStartPage - 1);
-            // targetEndPage = Math.min(totalPages, targetEndPage + 1);
-
+            
             console.log(`[Optimize] Calculated target page range: ${targetStartPage} - ${targetEndPage}`);
         } else {
             console.log(`[Optimize] No floor range specified, loading all pages: 1 - ${totalPages}`);
@@ -505,18 +565,20 @@
         actualStartPage = targetStartPage;
         actualEndPage = targetEndPage;
         
+        // ... (函数其余部分不变) ...
+        // [为节约空间，省略了 for 循环，请保留你原来的代码]
         for (let i = targetStartPage; i <= targetEndPage; i++) {
             actualEndPage = i; 
             if (i === currentPage) {
+                 // --- 处理当前（第一）页 ---
                  showStatus(`处理 ${i}/${totalPages}...`);
                  console.log(`处理当前页 (${i})`);
                  const originalCurrentPosts = Array.from(postList.querySelectorAll(':scope > div[id^="post_"]'));
                  
-                 // [新增] 标记 S1 页码 (功能3)
                  originalCurrentPosts.forEach(post => post.dataset.s1Page = i);
                  
                  await unblockPosts(originalCurrentPosts, i); 
-
+                 
                  originalCurrentPosts.forEach(post => {
                     post.querySelectorAll('img').forEach(img => img.dataset.s1Page = i);
                  });
@@ -526,17 +588,16 @@
                  const firstPageDoc = new DOMParser().parseFromString(`<body><div id="postlist">${firstPageHtml}</div></body>`, 'text/html');
                  const reparsedCurrentPosts = Array.from(firstPageDoc.querySelectorAll('#postlist > div[id^="post_"]'));
                  
-                 // [新增] 再次标记 S1 页码 (功能3)
                  reparsedCurrentPosts.forEach(post => {
                     post.dataset.s1Page = i;
-                    // [新增] 再次将页码传播到所有 img 标签
                     post.querySelectorAll('img').forEach(img => img.dataset.s1Page = i);
                  });
-
+                 
                  allCollectedPosts.push(...reparsedCurrentPosts);
                  console.log(`当前页 (${i}) 处理完成，添加 ${reparsedCurrentPosts.length} 帖子。`);
 
              } else {
+                 // --- 处理非当前页（需要 fetch） ---
                  showStatus(`加载 ${i}/${totalPages}...`);
                  console.log(`加载目标页 (${i})`);
                  const pageUrl = `${location.protocol}//${location.host}/2b/thread-${globalTid}-${i}-1.html`;
@@ -549,23 +610,24 @@
 
                  const newlyAddedPosts = [];
                  postsToParse.forEach(postNode => {
-                    // [新增] 标记 S1 页码 (功能3)
                     postNode.dataset.s1Page = i;
                     newlyAddedPosts.push(postNode);
                  });
 
                  if (newlyAddedPosts.length === 0) {
-                      console.warn(`[V3.9] Page ${i}: 未找到任何帖子元素！跳过。`);
+                      const onlyIdPosts = doc.querySelectorAll('div[id^="post_"]');
+                      if(onlyIdPosts.length > 0) console.warn(`[V3.9] Page ${i}: 找到了帖子，但不在 #postlist 下！`);
+                      else console.warn(`[V3.9] Page ${i}: 未找到任何帖子元素！跳过。`);
                       continue;
                  }
 
                  showStatus(`解锁 ${i}/${totalPages}...`);
-                 await unblockPosts(newlyAddedPosts, i);
-
+                 await unblockPosts(newlyAddedPosts, i); 
+                 
                  newlyAddedPosts.forEach(postNode => {
                     postNode.querySelectorAll('img').forEach(img => img.dataset.s1Page = i);
                  });
-
+                 
                  allCollectedPosts.push(...newlyAddedPosts);
                  console.log(`目标页 (${i}) 处理完成，添加 ${newlyAddedPosts.length} 帖子。`);
              }
