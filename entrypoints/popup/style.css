@@ -1,0 +1,191 @@
+:root {
+  /* S1 论坛配色 */
+  --s1-bg-light: #F6F7EB;
+  /* 纯色背景 (毛玻璃在popup中无效) */
+  --s1-bg-mid: #EDECD5;
+  /* 标题/悬停背景 */
+  --s1-border-dark: #CCCC99;
+  --s1-text-dark: #333;
+  --s1-link-blue: #336699;
+  /* 按钮颜色 */
+}
+
+body {
+  width: 320px;
+  padding: 0;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+
+  /* S1 配色 */
+  background: var(--s1-bg-light);
+  color: var(--s1-text-dark);
+  /* 移除了无效的 backdrop-filter 和透明背景 */
+}
+
+h3 {
+  margin: 0;
+  padding: 12px 15px;
+  text-align: center;
+  color: var(--s1-text-dark);
+  background: var(--s1-bg-mid);
+  border-bottom: 1px solid var(--s1-border-dark);
+  font-size: 16px;
+}
+
+/* 选项组通用样式 */
+.option-group,
+details>div {
+  padding: 12px 15px;
+  border-top: 1px solid #E0E0D1;
+  /* 稍浅的分隔线 */
+}
+
+.option-group label,
+summary {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: #000;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.input-row label {
+  font-weight: normal;
+  margin-bottom: 0;
+  margin-right: 5px;
+  min-width: 70px;
+  /* 统一标签宽度 */
+}
+
+.input-row label.short {
+  min-width: 30px;
+}
+
+.radio-group label {
+  display: inline-block;
+  margin-right: 15px;
+  font-weight: normal;
+}
+
+.radio-group input[type="radio"] {
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+/* 统一样式：数字输入框 */
+input[type="number"] {
+  width: 70px;
+  padding: 5px;
+  border: 1px solid var(--s1-border-dark);
+  border-radius: 3px;
+  background: #FFF;
+  margin-right: 10px;
+  color: var(--s1-text-dark);
+}
+
+/* 按钮区域 */
+.button-group {
+  padding: 15px;
+  border-top: 1px solid #E0E0D1;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  font-weight: bold;
+  color: white;
+  background-color: var(--s1-link-blue);
+  /* [修改] S1 链接蓝 */
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background-color: #4A85C3;
+  /* 链接蓝的悬停态 */
+}
+
+button:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
+}
+
+#status {
+  text-align: center;
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--s1-text-dark);
+  padding-bottom: 5px;
+}
+
+/* --- 核心：折叠菜单 --- */
+details {
+  border-top: 1px solid #E0E0D1;
+}
+
+details>div {
+  border-top: none;
+  /* 移除组内的上边框 */
+  padding-top: 0;
+}
+
+summary {
+  padding: 12px 15px;
+  cursor: pointer;
+  margin-bottom: 0;
+  transition: background-color 0.2s;
+  outline: none;
+  /* 移除点击时的蓝框 */
+}
+
+summary:hover {
+  background: var(--s1-bg-mid);
+  /* S1 悬停背景色 */
+}
+
+/* 折叠箭头样式 (S1 风格) */
+summary {
+  list-style: none;
+  /* 移除默认箭头 */
+  position: relative;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+  /* 移除默认箭头 */
+}
+
+summary::before {
+  content: '►';
+  /* 默认箭头 */
+  position: absolute;
+  right: 15px;
+  top: 12px;
+  font-size: 0.9em;
+  color: var(--s1-text-dark);
+}
+
+details[open]>summary::before {
+  content: '▼';
+  /* 展开时的箭头 */
+}
+
+/* 下载开关 */
+.download-toggle label {
+  font-weight: bold;
+  color: #000;
+}
+
+.download-toggle input[type="checkbox"] {
+  margin-right: 5px;
+  vertical-align: middle;
+}

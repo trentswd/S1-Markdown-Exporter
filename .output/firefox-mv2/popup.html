@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script type="module" crossorigin src="/chunks/popup-ChorH3f9.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/popup-DqA42dgV.css">
+</head>
+<body>
+  <h3>S1 导出Markdown</h3>
+
+  <div class="option-group">
+    <label>Markdown 分页设置 (留空则不分页):</label>
+    <div class="input-row">
+      <label for="postsPerFile">每页帖数:</label>
+      <input type="number" id="postsPerFile" min="1" placeholder="例如: 100">
+    </div>
+    <div class="input-row">
+      <label for="startFile">仅下载第:</label>
+      <input type="number" id="startFile" min="1" placeholder="起始页">
+      <label for="endFile" class="short">到:</label>
+      <input type="number" id="endFile" min="1" placeholder="结束页">
+    </div>
+  </div>
+
+  <div class="option-group download-toggle">
+    <label>
+      <input type="checkbox" id="downloadImages" checked> 下载图片到本地
+    </label>
+  </div>
+
+  <details id="floor-range-group">
+    <summary>楼层范围 (默认全部)</summary>
+    <div>
+      <div class="input-row">
+        <label for="startFloor" class="short">从:</label>
+        <input type="number" id="startFloor" min="1" placeholder="起始楼">
+        <label for="endFloor" class="short">到:</label>
+        <input type="number" id="endFloor" min="1" placeholder="结束楼">
+      </div>
+    </div>
+  </details>
+
+  <details id="advanced-group">
+    <summary>高级下载与格式选项</summary>
+    <div>
+      <div class="input-row">
+        <label for="postsPerPage">S1每页帖数:</label>
+        <input type="number" id="postsPerPage" min="1" value="40">
+      </div>
+
+      <div classs="radio-group" style="margin-top: 10px;">
+        <label style="font-weight: bold; margin-bottom: 8px;">图片链接格式 (下载时):</label><br>
+        <label>
+          <input type="radio" name="linkFormat" value="obsidian" checked> Obsidian
+        </label>
+        <label>
+          <input type="radio" name="linkFormat" value="standard"> Standard
+        </label>
+      </div>
+
+      <div class="radio-group" style="margin-top: 10px;">
+        <label style="font-weight: bold; margin-bottom: 8px;">表情链接格式:</label><br>
+        <label>
+          <input type="radio" name="emoteFormat" value="obsidian" checked> Obsidian (推荐)
+        </label>
+        <label>
+          <input type="radio" name="emoteFormat" value="standard"> Standard (原始)
+        </label>
+      </div>
+    </div>
+  </details>
+  
+  <div class="button-group">
+    <button id="exportButton">开始导出</button>
+    <div id="status">请在 S1 帖子页面点击。</div>
+  </div>
+
+</body>
+</html>
